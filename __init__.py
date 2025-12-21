@@ -4,17 +4,11 @@ from esphome.components import spi, switch, number
 from esphome.const import (
     CONF_ID,
     CONF_CS_PIN,
-    DEVICE_CLASS_SWITCH,
-    ENTITY_CATEGORY_CONFIG,
-    ICON_POWER,
-    ICON_FAN,
-    ICON_LIGHTBULB,
-    UNIT_EMPTY,
 )
 from esphome import pins
 
-DEPENDENCIES = ["spi"]
-MULTI_CONF = True
+DEPENDENCIES = ["spi", "switch", "number", "light", "fan"]
+AUTO_LOAD = ["switch", "number", "light", "fan"]
 
 proflame2_ns = cg.esphome_ns.namespace("proflame2")
 ProFlame2Component = proflame2_ns.class_(
@@ -48,25 +42,9 @@ CONF_SERIAL_NUMBER = "serial_number"
 CONF_POWER = "power"
 CONF_PILOT = "pilot"
 CONF_AUX = "aux"
-CONF_FRONT = "front"
-CONF_THERMOSTAT = "thermostat"
 CONF_FLAME = "flame"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
-
-# Validation schema for switches
-SWITCH_SCHEMA = switch.SWITCH_SCHEMA.extend(
-    {
-        cv.GenerateID(): cv.declare_id(switch.Switch),
-    }
-)
-
-# Validation schema for number components
-NUMBER_SCHEMA = number.NUMBER_SCHEMA.extend(
-    {
-        cv.GenerateID(): cv.declare_id(number.Number),
-    }
-)
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -74,36 +52,12 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_CS_PIN): pins.gpio_output_pin_schema,
         cv.Optional(CONF_GDO0_PIN): pins.gpio_input_pin_schema,
         cv.Optional(CONF_SERIAL_NUMBER, default=0x12345678): cv.hex_uint32_t,
-        cv.Optional(CONF_POWER): SWITCH_SCHEMA.extend(
-            {
-                cv.GenerateID(): cv.declare_id(ProFlame2PowerSwitch),
-            }
-        ),
-        cv.Optional(CONF_PILOT): SWITCH_SCHEMA.extend(
-            {
-                cv.GenerateID(): cv.declare_id(ProFlame2PilotSwitch),
-            }
-        ),
-        cv.Optional(CONF_AUX): SWITCH_SCHEMA.extend(
-            {
-                cv.GenerateID(): cv.declare_id(ProFlame2AuxSwitch),
-            }
-        ),
-        cv.Optional(CONF_FLAME): NUMBER_SCHEMA.extend(
-            {
-                cv.GenerateID(): cv.declare_id(ProFlame2FlameNumber),
-            }
-        ),
-        cv.Optional(CONF_FAN): NUMBER_SCHEMA.extend(
-            {
-                cv.GenerateID(): cv.declare_id(ProFlame2FanNumber),
-            }
-        ),
-        cv.Optional(CONF_LIGHT): NUMBER_SCHEMA.extend(
-            {
-                cv.GenerateID(): cv.declare_id(ProFlame2LightNumber),
-            }
-        ),
+        cv.Optional(CONF_POWER): switch.switch_schema(ProFlame2PowerSwitch),
+        cv.Optional(CONF_PILOT): switch.switch_schema(ProFlame2PilotSwitch),
+        cv.Optional(CONF_AUX): switch.switch_schema(ProFlame2AuxSwitch),
+        cv.Optional(CONF_FLAME): number.number_schema(ProFlame2FlameNumber),
+        cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
+        cv.Optional(CONF_LIGHT): number.number_schema(ProFlame2LightNumber),
     }
 ).extend(spi.spi_device_schema())
 
