@@ -1,190 +1,93 @@
-# Example ESPHome configuration for ProFlame 2 Fireplace Control
-# Using ESP32 with CC1101 RF module
-
 esphome:
   name: proflame2-fireplace
-  platform: ESP32
-  board: esp32dev
-  
-  # Include the custom component
-  includes:
-    - proflame2_cc1101.h
-    - proflame2_cc1101.cpp
-  
-# WiFi Configuration
-wifi:
-  ssid: "your_wifi_ssid"
-  password: "your_wifi_password"
-  
-  # Enable fallback hotspot in case wifi connection fails
-  ap:
-    ssid: "ProFlame2 Fallback"
-    password: "fallback_password"
 
-# Enable logging
+esp32:
+  board: denky32
+  framework:
+    type: arduino
+
+wifi:
+  ssid: "myssidwifi"
+  password: "replaceme"
+  ap:
+    ssid: "ProFlame2-Fallback"
+    password: "fallbackme!"
+
 logger:
   level: DEBUG
 
-# Enable Home Assistant API
 api:
   encryption:
-    key: "your_api_encryption_key_base64"
+    key: "ZZwCKz2VGE+o3T2h0yNKlxX3c9D4N5B4e+HLRjkqSzI="
 
-# Enable OTA updates
-ota:
-  platform: esphome
-  password: "your_ota_password"
-
-# SPI Configuration for CC1101
 spi:
-  clk_pin: GPIO18   # SCK
-  miso_pin: GPIO19  # MISO (optional, not really used for TX-only)
-  mosi_pin: GPIO23  # MOSI
-  
-# ProFlame 2 Component Configuration
-custom_component:
-  - id: fireplace_controller
-    lambda: |-
-      auto proflame = new proflame2::ProFlame2Component();
-      App.register_component(proflame);
-      return {proflame};
-      
-# Alternative configuration using external component
-# This would be the preferred method once published to ESPHome registry
-external_components:
-  - source:
-      type: local
-      path: custom_components
-    components: [proflame2]
+  clk_pin: GPIO18
+  miso_pin: GPIO19
+  mosi_pin: GPIO23
 
-# ProFlame 2 Fireplace Configuration
 proflame2:
   id: my_fireplace
-  cs_pin: GPIO5      # Chip Select for CC1101
-  gdo0_pin: GPIO4    # GDO0 from CC1101 (optional, for future RX support)
-  
-  # Serial number - This needs to match your existing remote or be paired
-  # Use 0x12345678 for testing, then replace with your actual remote's serial
-  serial_number: 0x12345678
-  
-  # Main Power Control
+  cs_pin: GPIO5
+  gdo0_pin: GPIO4
+  serial_number: 0xAA9802
+
   power:
     name: "Fireplace Power"
     icon: "mdi:fireplace"
-    restore_mode: RESTORE_DEFAULT_OFF
-    
-  # Pilot Light Mode (IPI/CPI)
+
   pilot:
     name: "Fireplace Pilot Mode"
     icon: "mdi:fire"
     entity_category: config
-    restore_mode: RESTORE_DEFAULT_OFF
-    on_turn_on:
-      - logger.log: "Pilot switched to CPI (continuous)"
-    on_turn_off:
-      - logger.log: "Pilot switched to IPI (intermittent)"
-    
-  # Auxiliary Power
+
   aux:
     name: "Fireplace Aux Power"
     icon: "mdi:power-plug"
-    restore_mode: RESTORE_DEFAULT_OFF
-    
-  # Flame Height Control (0-6)
+
   flame:
     name: "Fireplace Flame Height"
     icon: "mdi:fire"
     unit_of_measurement: ""
     mode: slider
-    
-  # Fan Speed Control (0-6)
+
   fan:
     name: "Fireplace Fan Speed"
     icon: "mdi:fan"
     unit_of_measurement: ""
     mode: slider
-    
-  # Light Level Control (0-6)
-  light:
-    name: "Fireplace Light Level"
-    icon: "mdi:lightbulb"
-    unit_of_measurement: ""
-    mode: slider
 
-# Optional: Climate component for thermostat control
-# This would require additional implementation
-climate:
-  - platform: custom
-    lambda: |-
-      auto climate_control = new ProFlame2Climate(id(my_fireplace));
-      App.register_component(climate_control);
-      return {climate_control};
-    climates:
-      - name: "Fireplace Thermostat"
-        visual:
-          min_temperature: 10
-          max_temperature: 30
-          temperature_step: 1.0
-
-# Optional: Template sensors for status
 sensor:
-  # WiFi Signal
   - platform: wifi_signal
     name: "Fireplace WiFi Signal"
     update_interval: 60s
-    
-  # Uptime
   - platform: uptime
     name: "Fireplace Uptime"
 
-# Binary sensor for connection status
 binary_sensor:
   - platform: status
     name: "Fireplace Connection Status"
 
-# Button for manual pairing mode (if implementing pairing)
 button:
-  - platform: template
-    name: "Fireplace Pairing Mode"
-    icon: "mdi:link-variant"
-    on_press:
-      - logger.log: "Entering pairing mode..."
-      # This would trigger a pairing sequence
-      
   - platform: restart
     name: "Fireplace Controller Restart"
     icon: "mdi:restart"
 
-# Text sensor for diagnostic info
 text_sensor:
   - platform: version
     name: "Fireplace ESPHome Version"
-    
   - platform: wifi_info
     ip_address:
       name: "Fireplace IP Address"
     ssid:
       name: "Fireplace Connected SSID"
 
-# Optional: Web server for local control
 web_server:
   port: 80
   auth:
     username: admin
-    password: admin
+    password: "adminpassword"
 
-# Time component for scheduling (optional)
 time:
   - platform: homeassistant
     id: homeassistant_time
-    
-    # Example automation: Turn on fireplace at sunset
-    on_time:
-      - seconds: 0
-        minutes: 0
-        hours: 18
-        then:
-          - switch.turn_on: fireplace_power
-          - number.set:
-              id: fireplace_flame
-              value: 3
+
