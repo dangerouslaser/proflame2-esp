@@ -142,8 +142,9 @@ You have three options to get a working serial number:
 
 ### Option 1: Clone Existing Remote (Recommended)
 1. Use an RTL-SDR or similar to capture your existing remote's signal
-2. Decode using `rtl_433 -f 314973000 -X 'n=proflame,m=OOK_MC_ZEROBIT,s=208,l=208'`
-3. Extract the serial number from the decoded packet
+2. Decode using docker run --device /dev/bus/usb/001/003 hertzg/rtl_433 -f 315M -R 207 -F json -M level -M bits
+   or just rtl_433 -f 315M -R 207 -F json -M level -M bits if you have multiple SDR adapters use lsusb to capture the right device.
+4. Extract the serial number from the decoded packet
 
 ### Option 2: Use Test Serial
 1. Use the default `0x12345678` for testing
