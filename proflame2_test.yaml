@@ -1,0 +1,318 @@
+esphome:
+  name: proflame2-test
+  on_boot:
+    priority: -100
+    then:
+      - logger.log: "ProFlame2 Debug System Started"
+      - delay: 2s
+      - lambda: |-
+          auto* fireplace = id(my_fireplace);
+          fireplace->debug_check_config();
+
+esp32:
+  board: denky32
+  framework:
+    type: arduino
+
+external_components:
+  - source:
+      type: local
+      path: ./components
+    components: [proflame2]
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "ProFlame2-Debug"
+    password: !secret ap_password
+
+# VERBOSE logging for debugging
+logger:
+  level: VERBOSE
+  logs:
+    proflame2: VERBOSE  # Maximum logging
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+spi:
+  clk_pin: GPIO18
+  miso_pin: GPIO19
+  mosi_pin: GPIO23
+
+proflame2:
+  id: my_fireplace
+  cs_pin: GPIO27
+  gdo0_pin: GPIO25
+  serial_number: 0xAA9402  # Your serial number
+
+  power:
+    name: "Fireplace Power"
+    icon: "mdi:fireplace"
+
+  pilot:
+    name: "Fireplace Pilot Mode"
+    icon: "mdi:fire"
+    entity_category: config
+
+  aux:
+    name: "Fireplace Aux Power"
+    icon: "mdi:power-plug"
+
+  flame:
+    name: "Fireplace Flame Height"
+    icon: "mdi:fire"
+    mode: slider
+
+  fan:
+    name: "Fireplace Fan Speed"
+    icon: "mdi:fan"
+    mode: slider
+
+sensor:
+  - platform: wifi_signal
+    name: "Fireplace WiFi Signal"
+    update_interval: 60s
+  - platform: uptime
+    name: "Fireplace Uptime"
+
+binary_sensor:
+  - platform: status
+    name: "Fireplace Connection Status"
+
+button:
+  - platform: restart
+    name: "Fireplace Controller Restart"
+    icon: "mdi:restart"
+  
+  # DEBUG BUTTONS
+  - platform: template
+    name: "DEBUG: Check CC1101 Config"
+    icon: "mdi:chip"
+    on_press:
+      - lambda: |-
+          auto* fireplace = id(my_fireplace);
+          fireplace->debug_check_config();
+
+          
+  - platform: template
+    name: "DEBUG: Verify CC1101 Hardware"
+    icon: "mdi:chip"
+    on_press:
+      - lambda: |-
+          auto* fireplace = id(my_fireplace);
+          ESP_LOGI("hw", "=== CC1101 HARDWARE CHECK ===");
+          
+          // Read chip info
+          uint8_t partnum = fireplace->read_status_register(0x30);
+          uint8_t version = fireplace->read_status_register(0x31);
+          
+          ESP_LOGI("hw", "Part Number: 0x%02X (should be 0x00)", partnum);
+          ESP_LOGI("hw", "Version: 0x%02X (should be 0x14 or 0x04)", version);
+          
+          if (partnum != 0x00) {
+            ESP_LOGE("hw", "WRONG CHIP! This is not a CC1101!");
+          }
+          
+          // Test register read/write
+          fireplace->write_register(0x0A, 0xA5); // CHANNR test value
+          uint8_t readback = fireplace->read_register(0x0A);
+          ESP_LOGI("hw", "Register test: wrote 0xA5, read 0x%02X", readback);
+          
+          // Check GDO0 pin voltage (if connected)
+          fireplace->write_register(0x02, 0x29); // Set GDO0 to output high
+          delay(10);
+          ESP_LOGI("hw", "Set GDO0 high - measure ~3.3V on GDO0 pin");
+          
+          fireplace->write_register(0x02, 0x2E); // Set GDO0 to output low  
+          delay(10);
+          ESP_LOGI("hw", "Set GDO0 low - measure ~0V on GDO0 pin");
+
+ 
+  - platform: template
+    name: "DEBUG: Compare States"
+    icon: "mdi:compare"
+    on_press:
+      - lambda: |-
+          auto* fireplace = id(my_fireplace);
+          
+          ESP_LOGI("cmp", "=== REGISTER COMPARISON ===");
+          
+          uint8_t regs[] = {
+            0x00, // IOCFG2
+            0x02, // IOCFG0
+            0x06, // PKTLEN
+            0x08, // PKTCTRL0
+            0x10, // MDMCFG4
+            0x11, // MDMCFG3
+            0x12, // MDMCFG2
+            0x22, // FREND0
+            0x23, // FSCAL3
+            0x26  // FSCAL0
+          };
+          
+          for(auto reg : regs) {
+            uint8_t val = fireplace->read_register(reg);
+            ESP_LOGI("cmp", "Reg 0x%02X = 0x%02X", reg, val);
+          }
+          
+          // Check PA table
+          fireplace->enable();
+          fireplace->write_byte(0x3E | 0xC0);
+          uint8_t pa0 = fireplace->read_byte();
+          uint8_t pa1 = fireplace->read_byte();
+          fireplace->disable();
+          ESP_LOGI("cmp", "PA Table: [0]=0x%02X, [1]=0x%02X", pa0, pa1);
+          
+          // Check state
+          uint8_t marc = fireplace->read_status_register(0x35) & 0x1F;
+          ESP_LOGI("cmp", "MARCSTATE: 0x%02X", marc);
+          ESP_LOGI("pf2", "Sent! Check: rtl_433 -f 314973000 -R 207");
+
+
+  - platform: template  
+    name: "Working Structure Power ON"
+    icon: "mdi:fire"
+    on_press:
+      - lambda: |-
+          auto* fireplace = id(my_fireplace);
+          
+          // Update to correct values
+          fireplace->set_serial_number(0xAA9402);  // Correct serial
+          
+          // Set state for Power ON
+          fireplace->current_state_.power = true;
+          fireplace->current_state_.thermostat = true;  // Your remote has this ON
+          fireplace->current_state_.flame_level = 6;
+          fireplace->current_state_.fan_level = 2;
+          
+          // Use your existing transmit function
+          fireplace->transmit_command();
+
+  - platform: template
+    name: "DEBUG: What Am I Sending?"
+    icon: "mdi:magnify"
+    on_press:
+      - lambda: |-
+          auto* fireplace = id(my_fireplace);
+          
+          // Set exact state from Power ON capture
+          fireplace->current_state_.power = true;
+          fireplace->current_state_.thermostat = true;
+          fireplace->current_state_.flame_level = 6;
+          fireplace->current_state_.fan_level = 2;
+          fireplace->current_state_.pilot_cpi = false;
+          fireplace->current_state_.light_level = 0;
+          fireplace->current_state_.aux_power = false;
+          fireplace->current_state_.front_flame = false;
+          
+          // Build packet to see what we generate
+          uint8_t packet[12];
+          memset(packet, 0, 12);
+          fireplace->build_packet(packet);
+          
+          ESP_LOGI("debug", "Raw packet built:");
+          for(int i = 0; i < 12; i++) {
+            ESP_LOGI("debug", "  [%d]: 0x%02X", i, packet[i]);
+          }
+          
+          // Now transmit and capture with rtl_433
+          fireplace->transmit_command();
+
+  - platform: template
+    name: "FIX: Force Correct Checksums"
+    icon: "mdi:check"
+    on_press:
+      - lambda: |-
+          auto* fireplace = id(my_fireplace);
+          ESP_LOGI("fix", "Using EXACT checksums from remote");
+          
+          // Build a custom packet with exact values
+          uint8_t packet[12];
+          memset(packet, 0, 12);
+          
+          // Insert exact bytes from Power ON capture
+          // Serial: 0xAA9402
+          // Cmd1: 0x02, Cmd2: 0x26
+          // Chk1: 0xBC, Chk2: 0x46
+          
+          // This is simplified - needs proper bit packing
+          // but shows the concept
+          packet[0] = 0xAA;  // Serial MSB
+          packet[1] = 0x94;  // Serial MID  
+          packet[2] = 0x02;  // Serial LSB
+          packet[3] = 0x02;  // Cmd1 - POWER ON
+          packet[4] = 0x26;  // Cmd2
+          packet[5] = 0xBC;  // Checksum 1 (from capture)
+          packet[6] = 0x46;  // Checksum 2 (from capture)
+          
+          // Manchester encode
+          uint8_t encoded[23];
+          memset(encoded, 0, 23);
+          fireplace->encode_manchester(packet, encoded, 91);
+          
+          // Send with working config
+          fireplace->send_strobe(0x30);
+          delay(100);
+          
+          // Set all working registers
+          fireplace->write_register(0x02, 0x06);
+          fireplace->write_register(0x22, 0x11);
+          fireplace->write_register(0x06, 23);
+          fireplace->write_register(0x08, 0x00);
+          fireplace->write_register(0x0D, 0x0C);
+          fireplace->write_register(0x0E, 0x1D);
+          fireplace->write_register(0x0F, 0x89);
+          fireplace->write_register(0x10, 0xF5);
+          fireplace->write_register(0x11, 0x83);
+          fireplace->write_register(0x12, 0x30);
+          
+          // PA table
+          fireplace->enable();
+          fireplace->write_byte(0x3E | 0x40);
+          fireplace->write_byte(0x00);
+          fireplace->write_byte(0xC0);
+          fireplace->disable();
+          
+          // Send 5 times
+          for(int i = 0; i < 5; i++) {
+            fireplace->send_strobe(0x36);
+            fireplace->send_strobe(0x3B);
+            
+            fireplace->enable();
+            fireplace->write_byte(0x7F);
+            for(int j = 0; j < 23; j++) {
+              fireplace->write_byte(encoded[j]);
+            }
+            fireplace->disable();
+            
+            fireplace->send_strobe(0x35);
+            delay(100);
+            fireplace->send_strobe(0x36);
+            delay(5);
+          }
+          
+          ESP_LOGI("fix", "Sent with correct checksums!");
+  
+
+
+text_sensor:
+  - platform: version
+    name: "Fireplace ESPHome Version"
+  - platform: wifi_info
+    ip_address:
+      name: "Fireplace IP Address"
+    ssid:
+      name: "Fireplace Connected SSID"
+
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret web_password
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
