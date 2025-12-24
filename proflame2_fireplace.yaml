@@ -6,19 +6,25 @@ esp32:
   framework:
     type: arduino
 
+external_components:
+  - source:
+      type: local
+      path: ./components
+    components: [proflame2]
+
 wifi:
-  ssid: "myssidwifi"
-  password: "replaceme"
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   ap:
     ssid: "ProFlame2-Fallback"
-    password: "fallbackme!"
+    password: !secret ap_password
 
 logger:
   level: DEBUG
 
 api:
   encryption:
-    key: "ZZwCKz2VGE+o3T2h0yNKlxX3c9D4N5B4e+HLRjkqSzI="
+    key: !secret api_encryption_key
 
 spi:
   clk_pin: GPIO18
@@ -27,8 +33,8 @@ spi:
 
 proflame2:
   id: my_fireplace
-  cs_pin: GPIO5
-  gdo0_pin: GPIO4
+  cs_pin: GPIO27
+  gdo0_pin: GPIO25
   serial_number: 0xAA9802
 
   power:
@@ -47,13 +53,11 @@ proflame2:
   flame:
     name: "Fireplace Flame Height"
     icon: "mdi:fire"
-    unit_of_measurement: ""
     mode: slider
 
   fan:
     name: "Fireplace Fan Speed"
     icon: "mdi:fan"
-    unit_of_measurement: ""
     mode: slider
 
 sensor:
@@ -85,9 +89,10 @@ web_server:
   port: 80
   auth:
     username: admin
-    password: "adminpassword"
+    password: !secret web_password
 
 time:
   - platform: homeassistant
     id: homeassistant_time
+
 
