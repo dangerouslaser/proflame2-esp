@@ -1,6 +1,10 @@
 #include "proflame2_cc1101.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
+#ifdef USE_ESP_IDF
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
 
 namespace esphome {
 namespace proflame2 {
@@ -76,7 +80,12 @@ void ProFlame2Component::setup() {
     
     // Reset and configure CC1101
     this->reset_cc1101();
+    // Use vTaskDelay for ESP-IDF to yield to scheduler, or delayMicroseconds for Arduino
+    #ifdef USE_ESP_IDF
+    vTaskDelay(pdMS_TO_TICKS(10));
+    #else
     delay(10);
+    #endif
     this->configure_cc1101();
     
     // CRITICAL: Set PA table for OOK (was missing!)
@@ -197,7 +206,12 @@ void ProFlame2Component::reset_cc1101() {
     this->enable();
     this->write_byte(CC1101_SRES);
     this->disable();
+    // Use vTaskDelay for ESP-IDF to yield to scheduler
+    #ifdef USE_ESP_IDF
+    vTaskDelay(pdMS_TO_TICKS(2));
+    #else
     delay(2);
+    #endif
 }
 
 void ProFlame2Component::configure_cc1101() {
@@ -450,7 +464,12 @@ void ProFlame2Component::start_tx_(const uint8_t *data, size_t len) {
     // CRITICAL: Manual calibration before TX (fixes VCO lock issues at 315MHz)
     ESP_LOGD(TAG, "Performing manual calibration before TX");
     this->send_strobe(CC1101_SCAL);
-    delay(5);  // Wait for calibration to complete
+    // Use vTaskDelay for ESP-IDF to yield to scheduler
+    #ifdef USE_ESP_IDF
+    vTaskDelay(pdMS_TO_TICKS(5));
+    #else
+    delay(5);
+    #endif
     
     // Verify we're in IDLE after calibration
     uint8_t marc_cal = this->read_status_register(CC1101_MARCSTATE) & 0x1F;
@@ -458,7 +477,11 @@ void ProFlame2Component::start_tx_(const uint8_t *data, size_t len) {
         ESP_LOGW(TAG, "Calibration may have failed, MARCSTATE=0x%02X", marc_cal);
         // Try to force IDLE
         this->send_strobe(CC1101_SIDLE);
+        #ifdef USE_ESP_IDF
+        vTaskDelay(pdMS_TO_TICKS(1));
+        #else
         delay(1);
+        #endif
     }
 
     // Prime FIFO as full as we reasonably can. The CC1101 TX FIFO is 64 bytes.
