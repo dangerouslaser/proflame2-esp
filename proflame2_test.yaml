@@ -71,6 +71,10 @@ proflame2:
     icon: "mdi:fan"
     mode: slider
 
+  secondary_flame:
+    name: "Fireplace Secondary Flame"
+    icon: "mdi:fire"
+
 sensor:
   - platform: wifi_signal
     name: "Fireplace WiFi Signal"

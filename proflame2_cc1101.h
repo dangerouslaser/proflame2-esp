@@ -76,8 +76,8 @@ struct ProFlame2Command {
     bool thermostat;
     bool power;
     
-    // Command Word 2: Front | Fan[3] | Aux | Flame[3]
-    bool front_flame;
+    // Command Word 2: Secondary Flame | Fan[3] | Aux | Flame[3]
+    bool secondary_flame;
     uint8_t fan_level;   // 0-6
     bool aux_power;
     uint8_t flame_level; // 0-6
@@ -109,14 +109,14 @@ class ProFlame2Component : public Component,
     void set_fan_level(uint8_t level);
     void set_light_level(uint8_t level);
     void set_aux_power(bool state);
-    void set_front_flame(bool state);
+    void set_secondary_flame(bool state);
     void set_thermostat(bool state);
     
     // Switch components
     void set_power_switch(switch_::Switch *sw) { this->power_switch_ = sw; }
     void set_pilot_switch(switch_::Switch *sw) { this->pilot_switch_ = sw; }
     void set_aux_switch(switch_::Switch *sw) { this->aux_switch_ = sw; }
-    void set_front_switch(switch_::Switch *sw) { this->front_switch_ = sw; }
+    void set_secondary_flame_switch(switch_::Switch *sw) { this->secondary_flame_switch_ = sw; }
     void set_thermostat_switch(switch_::Switch *sw) { this->thermostat_switch_ = sw; }
     
     // Number components for levels
@@ -174,7 +174,7 @@ class ProFlame2Component : public Component,
     switch_::Switch *power_switch_{nullptr};
     switch_::Switch *pilot_switch_{nullptr};
     switch_::Switch *aux_switch_{nullptr};
-    switch_::Switch *front_switch_{nullptr};
+    switch_::Switch *secondary_flame_switch_{nullptr};
     switch_::Switch *thermostat_switch_{nullptr};
     
     number::Number *flame_number_{nullptr};
@@ -261,6 +261,17 @@ class ProFlame2LightNumber : public number::Number, public Component {
         uint8_t level = static_cast<uint8_t>(value);
         this->parent_->set_light_level(level);
         this->publish_state(level);
+    }
+ protected:
+    ProFlame2Component *parent_;
+};
+
+class ProFlame2SecondaryFlameSwitch : public switch_::Switch, public Component {
+ public:
+    void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
+    void write_state(bool state) override {
+        this->parent_->set_secondary_flame(state);
+        this->publish_state(state);
     }
  protected:
     ProFlame2Component *parent_;
