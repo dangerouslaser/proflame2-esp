@@ -1,12 +1,12 @@
 {
   "domain": "proflame2",
   "name": "ProFlame 2 Fireplace Control",
-  "documentation": "https://github.com/j2deen/proflame2-esp",
+  "documentation": "https://github.com/marksieczkowski/proflame2-esp",
   "dependencies": ["spi","switch","number","light","fan"],
-  "codeowners": ["@j2deen"],
+  "codeowners": ["@marksieczkowski","@j2deen"],
   "requirements": [],
-  "version": "1.0.0",
-  "author": "Jay Deen",
+  "version": "1.0.1",
+  "author": "Mark Sieczkowski, Jay Deen",
   "license": "MIT",
   "description": "Control ProFlame 2 fireplace systems using ESP32 and CC1101 RF module",
   "hardware": {
@@ -18,6 +18,7 @@
     "Flame height adjustment (0-6 levels)",
     "Fan speed control (0-6 levels)",
     "Light level control (0-6 levels)",
+    "Secondary flame control",
     "IPI/CPI pilot mode selection",
     "Auxiliary power control",
     "Home Assistant integration",
@@ -33,6 +34,7 @@
     "aux": "optional",
     "flame": "optional",
     "fan": "optional",
-    "light": "optional"
+    "light": "optional",
+    "secondary_flame": "optional"
   }
 }

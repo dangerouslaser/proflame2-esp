@@ -59,6 +59,10 @@ proflame2:
     name: "Fireplace Fan Speed"
     icon: "mdi:fan"
     mode: slider
+  
+  secondary_flame:
+    name: "Fireplace Secondary Flame"
+    icon: "mdi:fire"
 
 sensor:
   - platform: wifi_signal

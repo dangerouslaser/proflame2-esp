@@ -25,6 +25,9 @@ ProFlame2PilotSwitch = proflame2_ns.class_(
 ProFlame2AuxSwitch = proflame2_ns.class_(
     "ProFlame2AuxSwitch", switch.Switch, cg.Component
 )
+ProFlame2SecondaryFlameSwitch = proflame2_ns.class_(
+    "ProFlame2SecondaryFlameSwitch", switch.Switch, cg.Component
+)
 
 # Number types
 ProFlame2FlameNumber = proflame2_ns.class_(
@@ -42,6 +45,7 @@ CONF_SERIAL_NUMBER = "serial_number"
 CONF_POWER = "power"
 CONF_PILOT = "pilot"
 CONF_AUX = "aux"
+CONF_SECONDARY_FLAME = "secondary_flame"
 CONF_FLAME = "flame"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
@@ -55,6 +59,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_POWER): switch.switch_schema(ProFlame2PowerSwitch),
         cv.Optional(CONF_PILOT): switch.switch_schema(ProFlame2PilotSwitch),
         cv.Optional(CONF_AUX): switch.switch_schema(ProFlame2AuxSwitch),
+        cv.Optional(CONF_SECONDARY_FLAME): switch.switch_schema(ProFlame2SecondaryFlameSwitch),
         cv.Optional(CONF_FLAME): number.number_schema(ProFlame2FlameNumber),
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
         cv.Optional(CONF_LIGHT): number.number_schema(ProFlame2LightNumber),
@@ -102,6 +107,15 @@ async def to_code(config):
         cg.add(sw.set_parent(var))
         cg.add(var.set_aux_switch(sw))
     
+    # Configure secondary flame switch
+    if CONF_SECONDARY_FLAME in config:
+        conf = config[CONF_SECONDARY_FLAME]
+        sw = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(sw, conf)
+        await switch.register_switch(sw, conf)
+        cg.add(sw.set_parent(var))
+        cg.add(var.set_secondary_flame_switch(sw))
+
     # Configure flame number
     if CONF_FLAME in config:
         conf = config[CONF_FLAME]
