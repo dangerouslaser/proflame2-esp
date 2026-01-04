@@ -2,11 +2,17 @@
 
 Control your ProFlame 2 fireplace system using an ESP32 and CC1101 RF module through Home Assistant with native ESPHome integration.
 
+This fork has had multiple updates from the original:
+- The file structure was updated to follow [example provided by ESPHome](https://esphome.io/components/external_components/#example-of-git-repositories)
+- Framework was moved from Arudino to ESP-IDF
+- Added support for turning the Secondary Plame on (previously called Front Flame, but some fireplaces have it in the back)
+- Various tinkering
+
 ## Features
 
 - ✅ Full control of ProFlame 2 fireplace systems
 - ✅ Native Home Assistant integration via ESPHome
-- ✅ Control power, flame height (0-6), fan speed (0-6), light level (0-6)
+- ✅ Control power, flame height (0-6), fan speed (0-6), light level (0-6), secondary flame control
 - ✅ Switch between IPI/CPI pilot modes
 - ✅ Auxiliary power control
 - ✅ No cloud dependency - fully local control
@@ -15,13 +21,12 @@ Control your ProFlame 2 fireplace system using an ESP32 and CC1101 RF module thr
 
 ## Hardware Requirements
 
-- **ESP32 Development Board** (ESP32-WROOM-32 recommended)
+- **ESP32 Development Board** 
 - **CC1101 RF Module** (433MHz version)
 - **Jumper wires** for connections
 - **3.3V power supply** (USB power from ESP32 is sufficient)
 
 ### Compatible CC1101 Modules
-- E07-M1101D (recommended)
 - Generic CC1101 modules from AliExpress/eBay
 - Ensure it's the 433MHz version (not 868MHz or 915MHz)
 
@@ -34,11 +39,11 @@ ESP32          CC1101
 -----          ------
 3.3V    <-->   VCC
 GND     <-->   GND
-GPIO5   <-->   CSN (Chip Select)
+GPI021  <-->   CSN (Chip Select)
 GPIO18  <-->   SCK (SPI Clock)
 GPIO23  <-->   MOSI (SPI Data Out)
 GPIO19  <-->   MISO (SPI Data In) [Optional for TX-only]
-GPIO4   <-->   GDO0 [Optional - for future RX support]
+GPIO22  <-->   GDO0 [Optional - for future RX support]
               GDO2 [Not connected]
 ```
 
@@ -49,16 +54,16 @@ GPIO4   <-->   GDO0 [Optional - for future RX support]
     ________________
    |                |
    | EN         D23 |---- MOSI (CC1101)
-   | VP         D22 |
+   | VP         D22 |---- GDO0 (CC1101)
    | VN         TX0 |
    | D34        RX0 |
-   | D35        D21 |
+   | D35        D21 |---- CSN (CC1101)
    | D32        D19 |---- MISO (CC1101) 
    | D33        D18 |---- SCK (CC1101)
-   | D25        D5  |---- CSN (CC1101)
+   | D25        D5  |
    | D26        TX2 |
    | D27        RX2 |
-   | D14        D4  |---- GDO0 (CC1101)
+   | D14        D4  |
    | D12        D2  |
    | D13        D15 |
    | GND        GND |---- GND (CC1101)
@@ -68,44 +73,13 @@ GPIO4   <-->   GDO0 [Optional - for future RX support]
 
 ## Installation
 
-### Method 1: Custom Component (Local)
+### External Component (Git)
 
-1. **Create custom_components directory** in your ESPHome configuration folder:
-   ```bash
-   mkdir -p ~/esphome/custom_components/proflame2
-   ```
-
-2. **Copy component files**:
-   ```bash
-   # Copy the files to the custom_components directory
-   cp proflame2_cc1101.h ~/esphome/custom_components/proflame2/
-   cp proflame2_cc1101.cpp ~/esphome/custom_components/proflame2/
-   cp __init__.py ~/esphome/custom_components/proflame2/
-   ```
-
-3. **Create your ESPHome configuration**:
-   ```bash
-   cp proflame2_fireplace.yaml ~/esphome/my_fireplace.yaml
-   ```
-
-4. **Edit the configuration** to match your setup:
-   - Update WiFi credentials
-   - Set your API encryption key
-   - Adjust pin assignments if needed
-   - Set the correct serial number (see Serial Number section)
-
-5. **Compile and upload**:
-   ```bash
-   esphome run my_fireplace.yaml
-   ```
-
-### Method 2: External Component (Git)
-
-Once published, you can use:
+Use mine or fork and use your own:
 
 ```yaml
 external_components:
-  - source: github://yourusername/esphome-proflame2@main
+  - source: github://marksieczkowski/esphome-proflame2@main
     components: [proflame2]
 ```
 
@@ -114,22 +88,43 @@ external_components:
 ### Basic Configuration
 
 ```yaml
+spi:
+  clk_pin: GPIO18
+  miso_pin: GPIO19
+  mosi_pin: GPIO23
+
 proflame2:
-  cs_pin: GPIO5           # Required: CC1101 chip select
-  gdo0_pin: GPIO4        # Optional: For future RX support
-  serial_number: 0x12345678  # Your remote's serial number
-  
+  id: fireplace
+  cs_pin: GPIO21
+  gdo0_pin: GPIO22 # optional
+  serial_number: !secret fireplace_remote_serial_number # Not really a secret but it makes it easy to change
+
   power:
-    name: "Fireplace Power"
-    
+    name: "Power"
+    icon: "mdi:fireplace"
+
+  pilot:
+    name: "Pilot Mode"
+    icon: "mdi:fire"
+    entity_category: config
+
+  aux:
+    name: "Aux Power"
+    icon: "mdi:power-plug"
+
   flame:
     name: "Flame Height"
-    
+    icon: "mdi:fire"
+    mode: slider
+
   fan:
     name: "Fan Speed"
-    
-  light:
-    name: "Light Level"
+    icon: "mdi:fan"
+    mode: slider
+
+  secondary_flame:
+    name: "Secondary Flame"
+    icon: "mdi:fire"
 ```
 
 ### Full Configuration Example
@@ -141,35 +136,14 @@ See `proflame2_fireplace.yaml` for a complete example with all options.
 You have three options to get a working serial number:
 
 ### Option 1: Clone Existing Remote (Recommended)
-1. Use an RTL-SDR or similar to capture your existing remote's signal
-2. Decode using docker run --device /dev/bus/usb/001/003 hertzg/rtl_433 -f 315M -R 207 -F json -M level -M bits
-   or just rtl_433 -f 315M -R 207 -F json -M level -M bits if you have multiple SDR adapters use lsusb to capture the right device.
-4. Extract the serial number from the decoded packet
+1. Use an [RTL-SDR](https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/) or similar to capture your existing remote's signal
+2. [rtl_433](https://github.com/merbanan/rtl_433) will decode the ProFlame 2 signals for you in realtime
 
-### Option 2: Use Test Serial
-1. Use the default `0x12345678` for testing
+### Option 2: Pair a new serial (Caution your old remote will stop working because you can only have one remote paired to the fireplace)
+1. Use the default `0x12345678` or generate a random 24-bit number
 2. Put your fireplace receiver in pairing mode (see manual)
 3. Send a command with the ESP32
 4. The receiver should accept and pair with this new serial
-
-### Option 3: Random Serial
-Generate a random 24-bit number and pair it with your fireplace following the pairing procedure.
-
-## Pairing with Fireplace
-
-1. **Enter pairing mode on the fireplace receiver**:
-   - Press and hold the LEARN/PROG button on the IFC board (inside fireplace)
-   - You should hear 3 beeps
-   - The amber LED will illuminate
-
-2. **Send pairing signal from ESP32**:
-   - Toggle the power switch in Home Assistant
-   - The receiver should beep 4 times indicating successful pairing
-
-3. **Test the connection**:
-   - Try turning the fireplace on/off
-   - Adjust flame height
-   - Test fan and light controls
 
 ## Home Assistant Integration
 
@@ -179,6 +153,7 @@ Once configured and running, the fireplace will appear in Home Assistant with:
 - `switch.fireplace_power` - Main on/off control
 - `switch.fireplace_pilot_mode` - IPI/CPI mode selection
 - `switch.fireplace_aux_power` - Auxiliary outlet control
+- `switch.fireplace_secondary_flame` - Secondary (aka Front) Flame on/off
 - `number.fireplace_flame_height` - Flame height (0-6)
 - `number.fireplace_fan_speed` - Fan speed (0-6)
 - `number.fireplace_light_level` - Light brightness (0-6)
@@ -292,22 +267,3 @@ This project is licensed under the MIT License - see LICENSE file for details.
 
 This project is not affiliated with, endorsed by, or connected to SIT Group, ProFlame, or any fireplace manufacturers. Use at your own risk. The authors assume no responsibility for damages or injuries resulting from the use of this software.
 
-## Support
-
-For issues, questions, or contributions:
-1. Check the [Troubleshooting](#troubleshooting) section
-2. Review existing GitHub issues
-3. Create a new issue with:
-   - ESPHome version
-   - ESP32 board type
-   - CC1101 module type
-   - Complete logs
-   - Wiring photos if applicable
-
-## Changelog
-
-### v1.0.0 (2024-12-10)
-- Initial release
-- Basic transmit functionality
-- Home Assistant integration
-- Support for all ProFlame 2 controls
