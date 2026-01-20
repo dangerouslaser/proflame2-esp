@@ -1,14 +1,14 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import spi, switch, number
+from esphome.components import spi, switch, number, button
 from esphome.const import (
     CONF_ID,
     CONF_CS_PIN,
 )
 from esphome import pins
 
-DEPENDENCIES = ["spi", "switch", "number", "light", "fan"]
-AUTO_LOAD = ["switch", "number", "light", "fan"]
+DEPENDENCIES = ["spi", "switch", "number", "button", "light", "fan"]
+AUTO_LOAD = ["switch", "number", "button", "light", "fan"]
 
 proflame2_ns = cg.esphome_ns.namespace("proflame2")
 ProFlame2Component = proflame2_ns.class_(
@@ -40,6 +40,10 @@ ProFlame2LightNumber = proflame2_ns.class_(
     "ProFlame2LightNumber", number.Number, cg.Component
 )
 
+ProFlame2SendButton = proflame2_ns.class_(
+    "ProFlame2SendButton", button.Button, cg.Component
+)
+
 CONF_GDO0_PIN = "gdo0_pin"
 CONF_SERIAL_NUMBER = "serial_number"
 CONF_POWER = "power"
@@ -49,6 +53,7 @@ CONF_SECONDARY_FLAME = "secondary_flame"
 CONF_FLAME = "flame"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
+CONF_SEND = "send"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -63,6 +68,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FLAME): number.number_schema(ProFlame2FlameNumber),
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
         cv.Optional(CONF_LIGHT): number.number_schema(ProFlame2LightNumber),
+        cv.Optional(CONF_SEND): button.button_schema(ProFlame2SendButton),
     }
 ).extend(spi.spi_device_schema())
 
@@ -160,3 +166,10 @@ async def to_code(config):
         )
         cg.add(num.set_parent(var))
         cg.add(var.set_light_number(num))
+
+    if CONF_SEND in config:
+        conf = config[CONF_SEND]
+        btn = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(btn, conf)
+        await button.register_button(btn, conf)
+        cg.add(btn.set_parent(var))

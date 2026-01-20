@@ -83,6 +83,10 @@ proflame2:
     name: "Secondary Flame"
     icon: "mdi:fire"
 
+  send:
+    name: "Send Commands"
+    icon: "mdi:send"
+
 sensor:
   - platform: uptime
     type: seconds

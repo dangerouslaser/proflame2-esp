@@ -15,6 +15,7 @@ This fork has had multiple updates from the original:
 - ✅ Control power, flame height (0-6), fan speed (0-6), light level (0-6), secondary flame control
 - ✅ Switch between IPI/CPI pilot modes
 - ✅ Auxiliary power control
+- ✅ Buffered changes with manual Send button
 - ✅ No cloud dependency - fully local control
 - ✅ Web interface for standalone control
 - ✅ MQTT support (via ESPHome)
@@ -125,6 +126,10 @@ proflame2:
   secondary_flame:
     name: "Secondary Flame"
     icon: "mdi:fire"
+
+  send:
+    name: "Send Commands"
+    icon: "mdi:send"
 ```
 
 ### Full Configuration Example
@@ -157,6 +162,7 @@ Once configured and running, the fireplace will appear in Home Assistant with:
 - `number.fireplace_flame_height` - Flame height (0-6)
 - `number.fireplace_fan_speed` - Fan speed (0-6)
 - `number.fireplace_light_level` - Light brightness (0-6)
+- `button.fireplace_send_commands` - Send buffered settings
 
 ### Example Automations
 

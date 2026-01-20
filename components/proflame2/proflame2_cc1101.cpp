@@ -74,6 +74,17 @@ void ProFlame2Component::setup() {
 }
 
 void ProFlame2Component::loop() {
+  if (this->send_pending_) {
+    const uint32_t now = millis();
+    if (this->spi_ready_ && this->tx_state_ == TX_IDLE &&
+        this->tx_repeat_left_ == 0 &&
+        (now - this->last_transmission_ >= MIN_TRANSMISSION_INTERVAL)) {
+      this->send_pending_ = false;
+      this->buffer_dirty_ = false;
+      this->transmit_command();
+    }
+  }
+
   // If we're in repeat-gap waiting window, fire next repeat when time arrives
   if (this->tx_state_ == TX_IDLE && this->tx_repeat_left_ > 0) {
     const uint32_t now = millis();
@@ -550,11 +561,13 @@ void ProFlame2Component::service_tx_() {
   }
 }
 
+void ProFlame2Component::queue_send() { this->send_pending_ = true; }
+
 // Control methods
 void ProFlame2Component::set_power(bool state) {
   if (this->current_state_.power != state) {
     this->current_state_.power = state;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->power_switch_) {
       this->power_switch_->publish_state(state);
     }
@@ -565,7 +578,7 @@ void ProFlame2Component::set_power(bool state) {
 void ProFlame2Component::set_pilot_mode(bool cpi_mode) {
   if (this->current_state_.pilot_cpi != cpi_mode) {
     this->current_state_.pilot_cpi = cpi_mode;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->pilot_switch_) {
       this->pilot_switch_->publish_state(cpi_mode);
     }
@@ -579,7 +592,7 @@ void ProFlame2Component::set_flame_level(uint8_t level) {
   }
   if (this->current_state_.flame_level != level) {
     this->current_state_.flame_level = level;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->flame_number_) {
       this->flame_number_->publish_state(level);
     }
@@ -593,7 +606,7 @@ void ProFlame2Component::set_fan_level(uint8_t level) {
   }
   if (this->current_state_.fan_level != level) {
     this->current_state_.fan_level = level;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->fan_number_) {
       this->fan_number_->publish_state(level);
     }
@@ -607,7 +620,7 @@ void ProFlame2Component::set_light_level(uint8_t level) {
   }
   if (this->current_state_.light_level != level) {
     this->current_state_.light_level = level;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->light_number_) {
       this->light_number_->publish_state(level);
     }
@@ -618,7 +631,7 @@ void ProFlame2Component::set_light_level(uint8_t level) {
 void ProFlame2Component::set_aux_power(bool state) {
   if (this->current_state_.aux_power != state) {
     this->current_state_.aux_power = state;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->aux_switch_) {
       this->aux_switch_->publish_state(state);
     }
@@ -629,7 +642,7 @@ void ProFlame2Component::set_aux_power(bool state) {
 void ProFlame2Component::set_secondary_flame(bool state) {
   if (this->current_state_.secondary_flame != state) {
     this->current_state_.secondary_flame = state;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->secondary_flame_switch_) {
       this->secondary_flame_switch_->publish_state(state);
     }
@@ -640,7 +653,7 @@ void ProFlame2Component::set_secondary_flame(bool state) {
 void ProFlame2Component::set_thermostat(bool state) {
   if (this->current_state_.thermostat != state) {
     this->current_state_.thermostat = state;
-    this->transmit_command();
+    this->buffer_dirty_ = true;
     if (this->thermostat_switch_) {
       this->thermostat_switch_->publish_state(state);
     }
