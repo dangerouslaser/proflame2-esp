@@ -67,7 +67,10 @@ static const uint8_t CC1101_SXOFF = 0x32;
 static const uint8_t CC1101_SCAL = 0x33;
 static const uint8_t CC1101_SRX = 0x34;
 static const uint8_t CC1101_STX = 0x35;
-static const uint8_t CC1101_SIDLE = 0x36;
+static const uint8_t CC1101_SIDLE        = 0x36;
+static const uint8_t CC1101_SFTX         = 0x3A;  // Flush TX FIFO strobe
+static const uint8_t CC1101_SFRX         = 0x3B;  // Flush RX FIFO strobe
+static const uint8_t CC1101_TXFIFO_BURST = 0x7F;  // TX FIFO burst-write SPI address
 
 // ProFlame 2 packet structure
 struct ProFlame2Command {
@@ -171,7 +174,10 @@ class ProFlame2Component : public Component,
 
   bool spi_ready_{false};
 
-  // Buffered send control
+  // buffer_dirty_: tracks whether current_state_ has unsent changes.
+  // Transmission is intentionally NOT triggered automatically on state changes —
+  // an explicit queue_send() call (Send button) is required to prevent accidental
+  // TX during rapid slider adjustments. Cleared together with send_pending_.
   bool buffer_dirty_{false};
   bool send_pending_{false};
 
@@ -201,7 +207,6 @@ class ProFlame2PowerSwitch : public switch_::Switch, public Component {
   void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
   void write_state(bool state) override {
     this->parent_->set_power(state);
-    this->publish_state(state);
   }
 
  protected:
@@ -213,7 +218,6 @@ class ProFlame2PilotSwitch : public switch_::Switch, public Component {
   void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
   void write_state(bool state) override {
     this->parent_->set_pilot_mode(state);
-    this->publish_state(state);
   }
 
  protected:
@@ -225,7 +229,6 @@ class ProFlame2AuxSwitch : public switch_::Switch, public Component {
   void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
   void write_state(bool state) override {
     this->parent_->set_aux_power(state);
-    this->publish_state(state);
   }
 
  protected:
@@ -239,7 +242,6 @@ class ProFlame2FlameNumber : public number::Number, public Component {
   void control(float value) override {
     uint8_t level = static_cast<uint8_t>(value);
     this->parent_->set_flame_level(level);
-    this->publish_state(level);
   }
 
  protected:
@@ -252,7 +254,6 @@ class ProFlame2FanNumber : public number::Number, public Component {
   void control(float value) override {
     uint8_t level = static_cast<uint8_t>(value);
     this->parent_->set_fan_level(level);
-    this->publish_state(level);
   }
 
  protected:
@@ -265,7 +266,6 @@ class ProFlame2LightNumber : public number::Number, public Component {
   void control(float value) override {
     uint8_t level = static_cast<uint8_t>(value);
     this->parent_->set_light_level(level);
-    this->publish_state(level);
   }
 
  protected:
@@ -277,7 +277,6 @@ class ProFlame2SecondaryFlameSwitch : public switch_::Switch, public Component {
   void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
   void write_state(bool state) override {
     this->parent_->set_secondary_flame(state);
-    this->publish_state(state);
   }
 
  protected:
