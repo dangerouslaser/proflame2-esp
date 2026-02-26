@@ -85,6 +85,9 @@ void ProFlame2Component::loop() {
     }
   }
 
+  // NOTE: tx_repeat_left_ is always 0 in normal operation — transmit_command()
+  // uses a single contiguous burst for all repeats. Block retained for potential
+  // future debug use.
   // If we're in repeat-gap waiting window, fire next repeat when time arrives
   if (this->tx_state_ == TX_IDLE && this->tx_repeat_left_ > 0) {
     const uint32_t now = millis();
@@ -198,16 +201,8 @@ void ProFlame2Component::configure_cc1101() {
   }
 
   this->send_strobe(CC1101_SIDLE);
-  this->send_strobe(0x3A);  // SFTX
-  this->send_strobe(0x3B);  // SFRX
-
-  // Fill PA table (simple/robust)
-  this->enable();
-  this->write_byte(CC1101_PATABLE | 0x40);
-  for (int i = 0; i < 8; i++) {
-    this->write_byte(0xC0);
-  }
-  this->disable();
+  this->send_strobe(CC1101_SFTX);
+  this->send_strobe(CC1101_SFRX);
 
   this->send_strobe(CC1101_SCAL);
 
@@ -239,9 +234,9 @@ uint8_t ProFlame2Component::calculate_checksum(uint8_t cmd_byte, uint8_t c_const
 void ProFlame2Component::build_packet(uint8_t *packet) {
   memset(packet, 0, 12);
 
-  uint16_t serial1 = (this->serial_number_ >> 16) & 0xFF;
-  uint16_t serial2 = (this->serial_number_ >> 8) & 0xFF;
-  uint16_t serial3 = this->serial_number_ & 0xFF;
+  uint8_t serial1 = (this->serial_number_ >> 16) & 0xFF;
+  uint8_t serial2 = (this->serial_number_ >> 8) & 0xFF;
+  uint8_t serial3 = this->serial_number_ & 0xFF;
 
   uint8_t cmd1 = (this->current_state_.pilot_cpi ? 0x80 : 0x00) |
                  ((this->current_state_.light_level & 0x07) << 4) |
@@ -263,12 +258,12 @@ void ProFlame2Component::build_packet(uint8_t *packet) {
   uint8_t checksum1 = this->calculate_checksum(cmd1, 0x05, 0x02);
   uint8_t checksum2 = this->calculate_checksum(cmd2, 0x04, 0x04);
 
-  ESP_LOGI(TAG,
+  ESP_LOGD(TAG,
            "CMD summary: serial bytes=%02X %02X %02X cmd1=0x%02X cmd2=0x%02X "
            "err1=0x%02X err2=0x%02X",
-           static_cast<uint8_t>(serial1), static_cast<uint8_t>(serial2),
-           static_cast<uint8_t>(serial3), cmd1, cmd2, checksum1, checksum2);
-  ESP_LOGI(TAG, "Serial full: 0x%08X", this->serial_number_);
+           serial1, serial2,
+           serial3, cmd1, cmd2, checksum1, checksum2);
+  ESP_LOGD(TAG, "Serial full: 0x%08X", this->serial_number_);
 
   // Build 7 words, 13 bits each: S(1) + guard(1) + data(8) + pad(1) + parity(1) + end guard(1)
   // pad bit is 1 only on the first word; parity is over data+pad.
@@ -286,9 +281,9 @@ void ProFlame2Component::build_packet(uint8_t *packet) {
     return w;
   };
 
-  words[0] = make_word(static_cast<uint8_t>(serial1), true);   // pad=1 on first word
-  words[1] = make_word(static_cast<uint8_t>(serial2), false);
-  words[2] = make_word(static_cast<uint8_t>(serial3), false);
+  words[0] = make_word(serial1, true);   // pad=1 on first word
+  words[1] = make_word(serial2, false);
+  words[2] = make_word(serial3, false);
   words[3] = make_word(cmd1, false);
   words[4] = make_word(cmd2, false);
   words[5] = make_word(checksum1, false);
@@ -362,8 +357,8 @@ void ProFlame2Component::transmit_command() {
     return;
   }
 
-  ESP_LOGI(TAG, "=== TRANSMIT DEBUG ===");
-  ESP_LOGI(TAG,
+  ESP_LOGD(TAG, "=== TRANSMIT DEBUG ===");
+  ESP_LOGD(TAG,
            "State: Power=%d, Pilot=%s, Flame=%d, Fan=%d, Light=%d, Aux=%d, "
            "Secondary Flame=%d",
            this->current_state_.power,
@@ -375,7 +370,7 @@ void ProFlame2Component::transmit_command() {
   uint8_t packet[12];
   this->build_packet(packet);
 
-  ESP_LOGI(TAG,
+  ESP_LOGD(TAG,
            "Raw packet (91 bits): %02X %02X %02X %02X %02X %02X %02X %02X %02X "
            "%02X %02X %02X",
            packet[0], packet[1], packet[2], packet[3], packet[4], packet[5],
@@ -384,14 +379,14 @@ void ProFlame2Component::transmit_command() {
   uint8_t encoded[23];
   this->encode_manchester(packet, encoded, 91);
 
-  ESP_LOGI(TAG, "Manchester encoded (182 bits = 23 bytes):");
-  ESP_LOGI(TAG, "  %02X %02X %02X %02X %02X %02X %02X %02X", encoded[0],
+  ESP_LOGD(TAG, "Manchester encoded (182 bits = 23 bytes):");
+  ESP_LOGD(TAG, "  %02X %02X %02X %02X %02X %02X %02X %02X", encoded[0],
            encoded[1], encoded[2], encoded[3], encoded[4], encoded[5],
            encoded[6], encoded[7]);
-  ESP_LOGI(TAG, "  %02X %02X %02X %02X %02X %02X %02X %02X", encoded[8],
+  ESP_LOGD(TAG, "  %02X %02X %02X %02X %02X %02X %02X %02X", encoded[8],
            encoded[9], encoded[10], encoded[11], encoded[12], encoded[13],
            encoded[14], encoded[15]);
-  ESP_LOGI(TAG, "  %02X %02X %02X %02X %02X %02X %02X", encoded[16],
+  ESP_LOGD(TAG, "  %02X %02X %02X %02X %02X %02X %02X", encoded[16],
            encoded[17], encoded[18], encoded[19], encoded[20], encoded[21],
            encoded[22]);
 
@@ -412,7 +407,7 @@ void ProFlame2Component::transmit_command() {
   this->tx_len_ = total_len;
   this->tx_repeat_left_ = 0;  // handled by single contiguous burst
 
-  ESP_LOGI(TAG, "Sending single burst of %u bytes (%u repeats)", static_cast<unsigned>(this->tx_len_), static_cast<unsigned>(repeats));
+  ESP_LOGD(TAG, "Sending single burst of %u bytes (%u repeats)", static_cast<unsigned>(this->tx_len_), static_cast<unsigned>(repeats));
 
   this->start_tx_(this->tx_buf_, this->tx_len_);
   this->last_transmission_ = now;
@@ -439,7 +434,7 @@ void ProFlame2Component::start_tx_(const uint8_t *data, size_t len) {
 
   // Clean start
   this->send_strobe(CC1101_SIDLE);
-  this->send_strobe(0x3A);  // SFTX
+  this->send_strobe(CC1101_SFTX);
 
   // Manual calibration before TX
   this->send_strobe(CC1101_SCAL);
@@ -452,7 +447,7 @@ void ProFlame2Component::start_tx_(const uint8_t *data, size_t len) {
   // Prime FIFO (up to 64 bytes)
   const size_t first = std::min<size_t>(64, this->tx_len_);
   this->enable();
-  this->write_byte(0x7F);
+  this->write_byte(CC1101_TXFIFO_BURST);
   for (size_t i = 0; i < first; i++) {
     this->write_byte(this->tx_buf_[i]);
   }
@@ -487,7 +482,7 @@ void ProFlame2Component::service_tx_() {
     ESP_LOGE(TAG, "TX error: MARCSTATE=0x%02X TXBYTES=0x%02X (underflow=%d)",
              marc, txbytes_raw, underflow);
     this->send_strobe(CC1101_SIDLE);
-    this->send_strobe(0x3A);
+    this->send_strobe(CC1101_SFTX);
     this->tx_state_ = TX_ERROR;
     this->tx_repeat_left_ = 0;
     return;
@@ -498,7 +493,7 @@ void ProFlame2Component::service_tx_() {
              txbytes, static_cast<unsigned>(this->tx_pos_),
              static_cast<unsigned>(this->tx_len_));
     this->send_strobe(CC1101_SIDLE);
-    this->send_strobe(0x3A);
+    this->send_strobe(CC1101_SFTX);
     this->tx_state_ = TX_ERROR;
     this->tx_repeat_left_ = 0;
     return;
@@ -512,7 +507,7 @@ void ProFlame2Component::service_tx_() {
       const size_t chunk = std::min(free, remaining);
 
       this->enable();
-      this->write_byte(0x7F);  // TX FIFO burst write
+      this->write_byte(CC1101_TXFIFO_BURST);  // TX FIFO burst write
       for (size_t i = 0; i < chunk; i++) {
         this->write_byte(this->tx_buf_[this->tx_pos_ + i]);
       }
@@ -532,11 +527,12 @@ void ProFlame2Component::service_tx_() {
   if (this->tx_pos_ >= this->tx_len_ && txbytes == 0 &&
       (marc == 0x01 || marc == 0x00)) {
     this->send_strobe(CC1101_SIDLE);
-    this->send_strobe(0x3A);
+    this->send_strobe(CC1101_SFTX);
     this->tx_state_ = TX_IDLE;
     ESP_LOGD(TAG, "TX done: pos=%u len=%u", static_cast<unsigned>(this->tx_pos_),
              static_cast<unsigned>(this->tx_len_));
 
+    // NOTE: tx_repeat_left_ is always 0 in normal operation; see transmit_command().
     // Count down repeats
     if (this->tx_repeat_left_ > 0) {
       this->tx_repeat_left_--;
@@ -671,7 +667,6 @@ void ProFlame2Component::debug_minimal_tx() {
 
   memcpy(this->tx_buf_, test_data, 23);
   this->tx_len_ = 23;
-  this->tx_repeat_left_ = TX_REPEAT_TARGET;
 
   this->start_tx_(this->tx_buf_, this->tx_len_);
 }
@@ -685,7 +680,7 @@ void ProFlame2Component::debug_check_config() {
   uint8_t pktlen = this->read_register(CC1101_PKTLEN);
 
   ESP_LOGI(TAG, "FREQ0: 0x%02X (should be 0x89)", freq0);
-  ESP_LOGI(TAG, "MDMCFG4: 0x%02X (should be 0xF5)", mdm4);
+  ESP_LOGI(TAG, "MDMCFG4: 0x%02X (should be 0xF6)", mdm4);
   ESP_LOGI(TAG, "MDMCFG3: 0x%02X (should be 0x83)", mdm3);
   ESP_LOGI(TAG, "FREND0: 0x%02X (should be 0x11)", frend0);
   ESP_LOGI(TAG, "PKTLEN: 0x%02X", pktlen);
