@@ -84,6 +84,37 @@ CONF_HYSTERESIS = "hysteresis"
 CONF_HEAT_FLAME_LEVEL = "heat_flame_level"
 CONF_HEAT_FAN_LEVEL = "heat_fan_level"
 CONF_HEAT_SECONDARY_FLAME = "heat_secondary_flame"
+CONF_ECC_CONSTANTS = "ecc_constants"
+CONF_ECC_C1 = "c1"
+CONF_ECC_D1 = "d1"
+CONF_ECC_C2 = "c2"
+CONF_ECC_D2 = "d2"
+
+# Defaults match the dangerouslaser pairing (serial 0x320A02). Other
+# fireplaces will need different values — see README "Pairing your remote".
+ECC_DEFAULTS = {
+    CONF_ECC_C1: 0x08,
+    CONF_ECC_D1: 0x0E,
+    CONF_ECC_C2: 0x0B,
+    CONF_ECC_D2: 0x07,
+}
+
+ECC_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_ECC_C1, default=ECC_DEFAULTS[CONF_ECC_C1]): cv.hex_int_range(
+            min=0, max=0xF
+        ),
+        cv.Optional(CONF_ECC_D1, default=ECC_DEFAULTS[CONF_ECC_D1]): cv.hex_int_range(
+            min=0, max=0xF
+        ),
+        cv.Optional(CONF_ECC_C2, default=ECC_DEFAULTS[CONF_ECC_C2]): cv.hex_int_range(
+            min=0, max=0xF
+        ),
+        cv.Optional(CONF_ECC_D2, default=ECC_DEFAULTS[CONF_ECC_D2]): cv.hex_int_range(
+            min=0, max=0xF
+        ),
+    }
+)
 
 LIGHT_SCHEMA = light.light_schema(ProFlame2Light, light.LightType.BRIGHTNESS_ONLY)
 
@@ -100,6 +131,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_CS_PIN): pins.gpio_output_pin_schema,
         cv.Optional(CONF_GDO0_PIN): pins.gpio_input_pin_schema,
         cv.Optional(CONF_SERIAL_NUMBER, default=0x12345678): cv.hex_uint32_t,
+        cv.Optional(CONF_ECC_CONSTANTS, default=ECC_DEFAULTS): ECC_SCHEMA,
         cv.Optional(CONF_POWER): switch.switch_schema(ProFlame2PowerSwitch),
         cv.Optional(CONF_PILOT): switch.switch_schema(ProFlame2PilotSwitch),
         cv.Optional(CONF_AUX): switch.switch_schema(ProFlame2AuxSwitch),
@@ -127,6 +159,17 @@ async def to_code(config):
     
     # Set serial number
     cg.add(var.set_serial_number(config[CONF_SERIAL_NUMBER]))
+
+    # ECC pairing constants
+    ecc = config[CONF_ECC_CONSTANTS]
+    cg.add(
+        var.set_ecc_constants(
+            ecc[CONF_ECC_C1],
+            ecc[CONF_ECC_D1],
+            ecc[CONF_ECC_C2],
+            ecc[CONF_ECC_D2],
+        )
+    )
     
     # Configure GDO0 pin if provided
     if CONF_GDO0_PIN in config:

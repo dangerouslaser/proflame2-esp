@@ -113,6 +113,15 @@ class ProFlame2Component : public Component,
   // Configuration methods
   void set_serial_number(uint32_t serial) { this->serial_number_ = serial; }
   void set_gdo0_pin(GPIOPin *pin) { this->gdo0_pin_ = pin; }
+  // ECC pairing constants. (c1, d1) are used to compute err1 from cmd1,
+  // (c2, d2) are used to compute err2 from cmd2. These are remote-specific —
+  // a different fireplace pairing will require different values. See README.
+  void set_ecc_constants(uint8_t c1, uint8_t d1, uint8_t c2, uint8_t d2) {
+    this->ecc_c1_ = c1 & 0x0F;
+    this->ecc_d1_ = d1 & 0x0F;
+    this->ecc_c2_ = c2 & 0x0F;
+    this->ecc_d2_ = d2 & 0x0F;
+  }
 
   // Control methods
   void set_power(bool state);
@@ -177,6 +186,12 @@ class ProFlame2Component : public Component,
 
   // Configuration
   uint32_t serial_number_{0x12345678};
+  // ECC pairing constants — defaults match the dangerouslaser pairing (serial
+  // 0x320A02). YAML can override; see README "Pairing your remote".
+  uint8_t ecc_c1_{0x08};
+  uint8_t ecc_d1_{0x0E};
+  uint8_t ecc_c2_{0x0B};
+  uint8_t ecc_d2_{0x07};
 
   // Component references
   switch_::Switch *power_switch_{nullptr};

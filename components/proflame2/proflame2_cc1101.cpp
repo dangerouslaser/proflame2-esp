@@ -1,7 +1,6 @@
 #include "proflame2_cc1101.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
-#include "esphome/components/light/light_state.h"
 
 #ifdef USE_ESP_IDF
 #include "freertos/FreeRTOS.h"
@@ -249,15 +248,13 @@ void ProFlame2Component::build_packet(uint8_t *packet) {
                  (this->current_state_.aux_power ? 0x08 : 0x00) |
                  (this->current_state_.flame_level & 0x07);
 
-  // uint8_t checksum1 = this->calculate_checksum(cmd1, 0x0D, 0x00);
-  // uint8_t checksum2 = this->calculate_checksum(cmd2, 0x00, 0x07);
-  // ECC tuned from real remote captures:
-  //   cmd1=0x01 -> err1=0x73
-  //   cmd2=0x31 -> err2=0x36
-  //   cmd2=0x21 -> err2=0x07
-  // These map to (c,d) = (0x05,0x02) for cmd1, (0x04,0x04) for cmd2.
-  uint8_t checksum1 = this->calculate_checksum(cmd1, 0x05, 0x02);
-  uint8_t checksum2 = this->calculate_checksum(cmd2, 0x04, 0x04);
+  // ECC algorithm:  X = (c ^ (hi<<1) ^ hi ^ (lo<<1)) & 0xF
+  //                 Y = (d ^ hi ^ lo) & 0xF
+  // (c, d) are per-remote/per-fireplace pairing constants — settable via the
+  // proflame2: ecc_constants: YAML block. See README "Pairing your remote"
+  // for how to derive them from rtl_433/OMG captures of your existing remote.
+  uint8_t checksum1 = this->calculate_checksum(cmd1, this->ecc_c1_, this->ecc_d1_);
+  uint8_t checksum2 = this->calculate_checksum(cmd2, this->ecc_c2_, this->ecc_d2_);
 
   ESP_LOGD(TAG,
            "CMD summary: serial bytes=%02X %02X %02X cmd1=0x%02X cmd2=0x%02X "
