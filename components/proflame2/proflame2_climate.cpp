@@ -76,8 +76,10 @@ void ProFlame2Climate::control(const climate::ClimateCall &call) {
     if (new_mode != this->mode) {
       this->mode = new_mode;
       if (new_mode == climate::CLIMATE_MODE_OFF) {
-        // Clean stop: force fireplace power off + queue transmit.
+        // Clean stop: drop secondary flame + fan and force power off.
         if (this->parent_ != nullptr && this->parent_->current_state_.power) {
+          this->parent_->set_secondary_flame(false);
+          this->parent_->set_fan_level(0);
           this->parent_->set_power(false);
           this->parent_->queue_send();
         }
@@ -175,14 +177,21 @@ void ProFlame2Climate::run_hysteresis_() {
   bool changed = false;
 
   if (!power_on && current < (target - this->hysteresis_)) {
+    // Apply user-configured heat behavior in a single packet alongside power-on.
+    this->parent_->set_flame_level(this->get_heat_flame_level_());
+    this->parent_->set_fan_level(this->get_heat_fan_level_());
+    this->parent_->set_secondary_flame(this->get_heat_secondary_flame_());
     this->parent_->set_power(true);
-    this->parent_->set_flame_level(HEAT_FLAME_LEVEL);
     this->parent_->queue_send();
     if (this->action != climate::CLIMATE_ACTION_HEATING) {
       this->action = climate::CLIMATE_ACTION_HEATING;
       changed = true;
     }
   } else if (power_on && current >= (target + this->hysteresis_)) {
+    // Cycle off: drop fan + secondary along with power so the fireplace doesn't
+    // sit blowing room-temp air after the burner shuts down.
+    this->parent_->set_secondary_flame(false);
+    this->parent_->set_fan_level(0);
     this->parent_->set_power(false);
     this->parent_->queue_send();
     if (this->action != climate::CLIMATE_ACTION_IDLE) {
@@ -201,6 +210,33 @@ void ProFlame2Climate::run_hysteresis_() {
   if (changed) {
     this->publish_state();
   }
+}
+
+uint8_t ProFlame2Climate::get_heat_flame_level_() const {
+  if (this->heat_flame_level_ != nullptr && this->heat_flame_level_->has_state()) {
+    int v = static_cast<int>(this->heat_flame_level_->state);
+    if (v < 1) v = 1;
+    if (v > 6) v = 6;
+    return static_cast<uint8_t>(v);
+  }
+  return 6;  // unconfigured → run flat-out
+}
+
+uint8_t ProFlame2Climate::get_heat_fan_level_() const {
+  if (this->heat_fan_level_ != nullptr && this->heat_fan_level_->has_state()) {
+    int v = static_cast<int>(this->heat_fan_level_->state);
+    if (v < 0) v = 0;
+    if (v > 6) v = 6;
+    return static_cast<uint8_t>(v);
+  }
+  return 0;  // unconfigured → no fan
+}
+
+bool ProFlame2Climate::get_heat_secondary_flame_() const {
+  if (this->heat_secondary_flame_ != nullptr) {
+    return this->heat_secondary_flame_->state;
+  }
+  return false;  // unconfigured → off
 }
 
 }  // namespace proflame2

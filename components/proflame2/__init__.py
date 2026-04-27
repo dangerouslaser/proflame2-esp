@@ -47,6 +47,16 @@ ProFlame2FanNumber = proflame2_ns.class_(
     "ProFlame2FanNumber", number.Number, cg.Component
 )
 
+# Persistent config entities consumed by the climate when it auto-activates the
+# burner: heat flame level, heat fan level, and whether secondary flame should
+# come on while heating. Pure config — no parent callback required.
+ProFlame2ConfigNumber = proflame2_ns.class_(
+    "ProFlame2ConfigNumber", number.Number, cg.Component
+)
+ProFlame2HeatSecondaryFlameSwitch = proflame2_ns.class_(
+    "ProFlame2HeatSecondaryFlameSwitch", switch.Switch, cg.Component
+)
+
 # Light (replaces former ProFlame2LightNumber so HA exposes it as a HomeKit Light)
 ProFlame2Light = proflame2_ns.class_("ProFlame2Light", light.LightOutput)
 
@@ -71,6 +81,9 @@ CONF_LIGHT = "light"
 CONF_SEND = "send"
 CONF_CLIMATE = "climate"
 CONF_HYSTERESIS = "hysteresis"
+CONF_HEAT_FLAME_LEVEL = "heat_flame_level"
+CONF_HEAT_FAN_LEVEL = "heat_fan_level"
+CONF_HEAT_SECONDARY_FLAME = "heat_secondary_flame"
 
 LIGHT_SCHEMA = light.light_schema(ProFlame2Light, light.LightType.BRIGHTNESS_ONLY)
 
@@ -97,6 +110,11 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
         cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
         cv.Optional(CONF_SEND): button.button_schema(ProFlame2SendButton),
+        cv.Optional(CONF_HEAT_FLAME_LEVEL): number.number_schema(ProFlame2ConfigNumber),
+        cv.Optional(CONF_HEAT_FAN_LEVEL): number.number_schema(ProFlame2ConfigNumber),
+        cv.Optional(CONF_HEAT_SECONDARY_FLAME): switch.switch_schema(
+            ProFlame2HeatSecondaryFlameSwitch
+        ),
         cv.Optional(CONF_CLIMATE): CLIMATE_SCHEMA,
     }
 ).extend(spi.spi_device_schema())
@@ -197,6 +215,38 @@ async def to_code(config):
         await button.register_button(btn, conf)
         cg.add(btn.set_parent(var))
 
+    # Heat-mode config entities (consumed by the climate). Registered before
+    # the climate so we can hand the references in at climate construction.
+    heat_flame_num = None
+    if CONF_HEAT_FLAME_LEVEL in config:
+        conf = config[CONF_HEAT_FLAME_LEVEL]
+        num = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(num, conf)
+        await number.register_number(
+            num, conf, min_value=1, max_value=6, step=1
+        )
+        cg.add(num.set_default_value(6.0))
+        heat_flame_num = num
+
+    heat_fan_num = None
+    if CONF_HEAT_FAN_LEVEL in config:
+        conf = config[CONF_HEAT_FAN_LEVEL]
+        num = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(num, conf)
+        await number.register_number(
+            num, conf, min_value=0, max_value=6, step=1
+        )
+        cg.add(num.set_default_value(0.0))
+        heat_fan_num = num
+
+    heat_secondary_sw = None
+    if CONF_HEAT_SECONDARY_FLAME in config:
+        conf = config[CONF_HEAT_SECONDARY_FLAME]
+        sw = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(sw, conf)
+        await switch.register_switch(sw, conf)
+        heat_secondary_sw = sw
+
     # Configure climate (thermostat layered on top of the parent)
     if CONF_CLIMATE in config:
         conf = config[CONF_CLIMATE]
@@ -207,4 +257,10 @@ async def to_code(config):
         sens = await cg.get_variable(conf[CONF_SENSOR])
         cg.add(clim.set_sensor(sens))
         cg.add(clim.set_hysteresis(conf[CONF_HYSTERESIS]))
+        if heat_flame_num is not None:
+            cg.add(clim.set_heat_flame_level(heat_flame_num))
+        if heat_fan_num is not None:
+            cg.add(clim.set_heat_fan_level(heat_fan_num))
+        if heat_secondary_sw is not None:
+            cg.add(clim.set_heat_secondary_flame(heat_secondary_sw))
         cg.add(var.set_climate(clim))

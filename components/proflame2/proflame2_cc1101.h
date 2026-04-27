@@ -14,7 +14,9 @@
 #include "esphome/components/fan/fan.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/button/button.h"
+#include "esphome/core/preferences.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace esphome {
@@ -302,6 +304,30 @@ class ProFlame2SecondaryFlameSwitch : public switch_::Switch, public Component {
 
  protected:
   ProFlame2Component *parent_;
+};
+
+// Persistent number entity used by the climate as "what flame/fan level should
+// the burner run at when the climate auto-activates?". Pure config — no parent
+// callback. The value survives reboots via global_preferences.
+class ProFlame2ConfigNumber : public number::Number, public Component {
+ public:
+  void set_default_value(float v) { this->default_value_ = v; }
+  void setup() override;
+  void control(float value) override;
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+ protected:
+  float default_value_{0.0f};
+  ESPPreferenceObject pref_;
+};
+
+// Persistent switch for "should secondary flame be on while heating?". Pure
+// config — restore_mode is honored via switch base class.
+class ProFlame2HeatSecondaryFlameSwitch : public switch_::Switch, public Component {
+ public:
+  void setup() override;
+  void write_state(bool state) override { this->publish_state(state); }
+  float get_setup_priority() const override { return setup_priority::DATA; }
 };
 
 class ProFlame2SendButton : public button::Button, public Component {

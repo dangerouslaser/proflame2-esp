@@ -743,5 +743,26 @@ void ProFlame2Component::debug_check_config() {
   ESP_LOGI(TAG, "PKTLEN: 0x%02X", pktlen);
 }
 
+void ProFlame2ConfigNumber::setup() {
+  this->pref_ = global_preferences->make_preference<float>(this->get_object_id_hash());
+  float v;
+  if (!this->pref_.load(&v) || std::isnan(v)) {
+    v = this->default_value_;
+  }
+  this->publish_state(v);
+}
+
+void ProFlame2ConfigNumber::control(float value) {
+  this->publish_state(value);
+  this->pref_.save(&value);
+}
+
+void ProFlame2HeatSecondaryFlameSwitch::setup() {
+  auto initial = this->get_initial_state_with_restore_mode();
+  if (initial.has_value()) {
+    this->publish_state(*initial);
+  }
+}
+
 }  // namespace proflame2
 }  // namespace esphome
