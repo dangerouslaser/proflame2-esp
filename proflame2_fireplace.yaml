@@ -47,14 +47,30 @@ spi:
   mosi_pin: GPIO23
 
 external_components:
-  - source: github://marksieczkowski/proflame2-esp@main
+  - source: github://dangerouslaser/proflame2-esp@main
     components: [proflame2]
+
+# Optional: a HA-side temperature sensor consumed by the climate. Use a
+# template helper in HA so you can repoint the source without reflashing.
+sensor:
+  - platform: homeassistant
+    id: room_temp
+    entity_id: sensor.fireplace_room_temperature
+    filters:
+      - lambda: 'return (x - 32.0f) * 5.0f / 9.0f;'  # °F → °C
 
 proflame2:
   id: fireplace
   cs_pin: GPIO21
   gdo0_pin: GPIO22
   serial_number: !secret fireplace_remote_serial_number
+  # ECC pairing constants — must match your remote ↔ fireplace pairing.
+  # See README "Pairing your remote" for how to derive these.
+  ecc_constants:
+    c1: 0x08
+    d1: 0x0E
+    c2: 0x0B
+    d2: 0x07
 
   power:
     name: "Power"
@@ -79,6 +95,10 @@ proflame2:
     icon: "mdi:fan"
     mode: slider
 
+  light:
+    name: "Fireplace Light"
+    icon: "mdi:lightbulb"
+
   secondary_flame:
     name: "Secondary Flame"
     icon: "mdi:fire"
@@ -86,6 +106,32 @@ proflame2:
   send:
     name: "Send Commands"
     icon: "mdi:send"
+
+  # Persistent heat-mode behavior (applied each time the climate auto-activates
+  # the burner). Tweak at runtime in HA — no reflash needed.
+  heat_flame_level:
+    name: "Heat Flame Level"
+    icon: "mdi:fire"
+    entity_category: config
+  heat_fan_level:
+    name: "Heat Fan Level"
+    icon: "mdi:fan"
+    entity_category: config
+  heat_secondary_flame:
+    name: "Heat Secondary Flame"
+    icon: "mdi:fire"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  climate:
+    name: "Fireplace"
+    sensor: room_temp
+    visual:
+      min_temperature: 60°F
+      max_temperature: 85°F
+      temperature_step:
+        target_temperature: 0.5°F
+        current_temperature: 0.1°F
 
 sensor:
   - platform: uptime
