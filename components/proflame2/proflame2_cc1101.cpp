@@ -1,6 +1,7 @@
 #include "proflame2_cc1101.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
+#include "esphome/components/light/light_state.h"
 
 #ifdef USE_ESP_IDF
 #include "freertos/FreeRTOS.h"
@@ -568,6 +569,16 @@ void ProFlame2Component::set_power(bool state) {
       this->power_switch_->publish_state(state);
     }
     ESP_LOGI(TAG, "Power set to %s", state ? "ON" : "OFF");
+
+    // Hardware reality: the fireplace light only works while the burner is
+    // running. Mirror that to HA/HomeKit by forcing the light off whenever
+    // we power down.
+    if (!state) {
+      this->current_state_.light_level = 0;
+      if (this->light_state_ != nullptr) {
+        this->light_state_->turn_off().set_transition_length(0).perform();
+      }
+    }
   }
 }
 
@@ -617,10 +628,56 @@ void ProFlame2Component::set_light_level(uint8_t level) {
   if (this->current_state_.light_level != level) {
     this->current_state_.light_level = level;
     this->buffer_dirty_ = true;
-    if (this->light_number_) {
-      this->light_number_->publish_state(level);
+    if (this->light_state_ != nullptr) {
+      // Mirror level → light entity. brightness is level / 6 in 1/6 steps.
+      auto call = this->light_state_->make_call();
+      call.set_state(level > 0);
+      if (level > 0) {
+        call.set_brightness(static_cast<float>(level) / 6.0f);
+      }
+      call.set_transition_length(0);
+      call.perform();
     }
     ESP_LOGI(TAG, "Light level set to %d", level);
+  }
+}
+
+// Light entity write_state: invoked when HA/HomeKit changes the light.
+// Maps 0–1 brightness → 0–6 level. Hardware constraint: rejects control when
+// the fireplace burner is off (the light literally can't be on without it).
+void ProFlame2Light::write_state(light::LightState *state) {
+  bool is_on;
+  state->current_values_as_binary(&is_on);
+  float bright = 0.0f;
+  state->current_values_as_brightness(&bright);
+
+  if (this->parent_ == nullptr) {
+    return;
+  }
+
+  // Gate on power: light only works while the fireplace is running.
+  if (is_on && !this->parent_->current_state_.power) {
+    ESP_LOGW(TAG, "Fireplace must be running to control the light; ignoring");
+    state->turn_off().set_transition_length(0).perform();
+    return;
+  }
+
+  uint8_t level = 0;
+  if (is_on) {
+    // brightness 0..1 → level 1..6 (round-half-up; brightness>0 is at least 1)
+    int rounded = static_cast<int>(bright * 6.0f + 0.5f);
+    if (rounded < 1) rounded = 1;
+    if (rounded > 6) rounded = 6;
+    level = static_cast<uint8_t>(rounded);
+  }
+
+  if (this->parent_->current_state_.light_level != level) {
+    // Update hardware state directly without recursing into set_light_level()
+    // (which would call back into this LightState and loop). Then queue a
+    // transmit so the change propagates over RF.
+    this->parent_->current_state_.light_level = level;
+    ESP_LOGI(TAG, "Light level set to %d (from light entity)", level);
+    this->parent_->queue_send();
   }
 }
 

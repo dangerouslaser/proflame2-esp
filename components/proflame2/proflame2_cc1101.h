@@ -5,6 +5,7 @@
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/light/light_output.h"
+#include "esphome/components/light/light_state.h"
 #include "esphome/components/fan/fan.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/button/button.h"
@@ -127,7 +128,9 @@ class ProFlame2Component : public Component,
   // Number components for levels
   void set_flame_number(number::Number *num) { this->flame_number_ = num; }
   void set_fan_number(number::Number *num) { this->fan_number_ = num; }
-  void set_light_number(number::Number *num) { this->light_number_ = num; }
+  // Light entity (replaces the old light Number); set by codegen so the parent
+  // can force the light off when the fireplace powers down.
+  void set_light_state(light::LightState *state) { this->light_state_ = state; }
 
   // DEBUG FUNCTIONS
   void debug_minimal_tx();
@@ -170,7 +173,7 @@ class ProFlame2Component : public Component,
 
   number::Number *flame_number_{nullptr};
   number::Number *fan_number_{nullptr};
-  number::Number *light_number_{nullptr};
+  light::LightState *light_state_{nullptr};
 
   bool spi_ready_{false};
 
@@ -260,16 +263,21 @@ class ProFlame2FanNumber : public number::Number, public Component {
   ProFlame2Component *parent_;
 };
 
-class ProFlame2LightNumber : public number::Number, public Component {
+// Fireplace light: a brightness-only light. Hardware constraint — the light
+// physically only operates while the burner is running, so we reject control
+// attempts whenever power is off.
+class ProFlame2Light : public light::LightOutput {
  public:
   void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  void control(float value) override {
-    uint8_t level = static_cast<uint8_t>(value);
-    this->parent_->set_light_level(level);
+  light::LightTraits get_traits() override {
+    auto traits = light::LightTraits();
+    traits.set_supported_color_modes({light::ColorMode::BRIGHTNESS});
+    return traits;
   }
+  void write_state(light::LightState *state) override;
 
  protected:
-  ProFlame2Component *parent_;
+  ProFlame2Component *parent_{nullptr};
 };
 
 class ProFlame2SecondaryFlameSwitch : public switch_::Switch, public Component {

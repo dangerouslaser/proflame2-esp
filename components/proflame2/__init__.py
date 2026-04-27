@@ -1,9 +1,10 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import spi, switch, number, button
+from esphome.components import spi, switch, number, button, light
 from esphome.const import (
     CONF_ID,
     CONF_CS_PIN,
+    CONF_OUTPUT_ID,
 )
 from esphome import pins
 
@@ -29,16 +30,16 @@ ProFlame2SecondaryFlameSwitch = proflame2_ns.class_(
     "ProFlame2SecondaryFlameSwitch", switch.Switch, cg.Component
 )
 
-# Number types
+# Number types (flame + fan; light migrated to a Light entity below)
 ProFlame2FlameNumber = proflame2_ns.class_(
     "ProFlame2FlameNumber", number.Number, cg.Component
 )
 ProFlame2FanNumber = proflame2_ns.class_(
     "ProFlame2FanNumber", number.Number, cg.Component
 )
-ProFlame2LightNumber = proflame2_ns.class_(
-    "ProFlame2LightNumber", number.Number, cg.Component
-)
+
+# Light (replaces former ProFlame2LightNumber so HA exposes it as a HomeKit Light)
+ProFlame2Light = proflame2_ns.class_("ProFlame2Light", light.LightOutput)
 
 ProFlame2SendButton = proflame2_ns.class_(
     "ProFlame2SendButton", button.Button, cg.Component
@@ -55,6 +56,8 @@ CONF_FAN = "fan"
 CONF_LIGHT = "light"
 CONF_SEND = "send"
 
+LIGHT_SCHEMA = light.light_schema(ProFlame2Light, light.LightType.BRIGHTNESS_ONLY)
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(ProFlame2Component),
@@ -67,7 +70,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_SECONDARY_FLAME): switch.switch_schema(ProFlame2SecondaryFlameSwitch),
         cv.Optional(CONF_FLAME): number.number_schema(ProFlame2FlameNumber),
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
-        cv.Optional(CONF_LIGHT): number.number_schema(ProFlame2LightNumber),
+        cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
         cv.Optional(CONF_SEND): button.button_schema(ProFlame2SendButton),
     }
 ).extend(spi.spi_device_schema())
@@ -152,20 +155,14 @@ async def to_code(config):
         cg.add(num.set_parent(var))
         cg.add(var.set_fan_number(num))
     
-    # Configure light number
+    # Configure light entity (brightness 0–100% maps to fireplace levels 1–6)
     if CONF_LIGHT in config:
         conf = config[CONF_LIGHT]
-        num = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(num, conf)
-        await number.register_number(
-            num,
-            conf,
-            min_value=0,
-            max_value=6,
-            step=1,
-        )
-        cg.add(num.set_parent(var))
-        cg.add(var.set_light_number(num))
+        out = cg.new_Pvariable(conf[CONF_OUTPUT_ID])
+        await light.register_light(out, conf)
+        cg.add(out.set_parent(var))
+        light_state = await cg.get_variable(conf[CONF_ID])
+        cg.add(var.set_light_state(light_state))
 
     if CONF_SEND in config:
         conf = config[CONF_SEND]
