@@ -1,15 +1,24 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import spi, switch, number, button, light
+from esphome.components import (
+    spi,
+    switch,
+    number,
+    button,
+    light,
+    climate,
+    sensor,
+)
 from esphome.const import (
     CONF_ID,
     CONF_CS_PIN,
     CONF_OUTPUT_ID,
+    CONF_SENSOR,
 )
 from esphome import pins
 
-DEPENDENCIES = ["spi", "switch", "number", "button", "light", "fan"]
-AUTO_LOAD = ["switch", "number", "button", "light", "fan"]
+DEPENDENCIES = ["spi", "switch", "number", "button", "light", "fan", "climate", "sensor"]
+AUTO_LOAD = ["switch", "number", "button", "light", "fan", "climate", "sensor"]
 
 proflame2_ns = cg.esphome_ns.namespace("proflame2")
 ProFlame2Component = proflame2_ns.class_(
@@ -41,6 +50,11 @@ ProFlame2FanNumber = proflame2_ns.class_(
 # Light (replaces former ProFlame2LightNumber so HA exposes it as a HomeKit Light)
 ProFlame2Light = proflame2_ns.class_("ProFlame2Light", light.LightOutput)
 
+# Climate (HEAT/OFF thermostat over a HA-provided room temperature sensor)
+ProFlame2Climate = proflame2_ns.class_(
+    "ProFlame2Climate", climate.Climate, cg.Component
+)
+
 ProFlame2SendButton = proflame2_ns.class_(
     "ProFlame2SendButton", button.Button, cg.Component
 )
@@ -55,8 +69,17 @@ CONF_FLAME = "flame"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
 CONF_SEND = "send"
+CONF_CLIMATE = "climate"
+CONF_HYSTERESIS = "hysteresis"
 
 LIGHT_SCHEMA = light.light_schema(ProFlame2Light, light.LightType.BRIGHTNESS_ONLY)
+
+CLIMATE_SCHEMA = climate.climate_schema(ProFlame2Climate).extend(
+    {
+        cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
+        cv.Optional(CONF_HYSTERESIS, default="0.5°C"): cv.temperature,
+    }
+)
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -67,11 +90,14 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_POWER): switch.switch_schema(ProFlame2PowerSwitch),
         cv.Optional(CONF_PILOT): switch.switch_schema(ProFlame2PilotSwitch),
         cv.Optional(CONF_AUX): switch.switch_schema(ProFlame2AuxSwitch),
-        cv.Optional(CONF_SECONDARY_FLAME): switch.switch_schema(ProFlame2SecondaryFlameSwitch),
+        cv.Optional(CONF_SECONDARY_FLAME): switch.switch_schema(
+            ProFlame2SecondaryFlameSwitch
+        ),
         cv.Optional(CONF_FLAME): number.number_schema(ProFlame2FlameNumber),
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
         cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
         cv.Optional(CONF_SEND): button.button_schema(ProFlame2SendButton),
+        cv.Optional(CONF_CLIMATE): CLIMATE_SCHEMA,
     }
 ).extend(spi.spi_device_schema())
 
@@ -170,3 +196,15 @@ async def to_code(config):
         await cg.register_component(btn, conf)
         await button.register_button(btn, conf)
         cg.add(btn.set_parent(var))
+
+    # Configure climate (thermostat layered on top of the parent)
+    if CONF_CLIMATE in config:
+        conf = config[CONF_CLIMATE]
+        clim = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(clim, conf)
+        await climate.register_climate(clim, conf)
+        cg.add(clim.set_parent(var))
+        sens = await cg.get_variable(conf[CONF_SENSOR])
+        cg.add(clim.set_sensor(sens))
+        cg.add(clim.set_hysteresis(conf[CONF_HYSTERESIS]))
+        cg.add(var.set_climate(clim))

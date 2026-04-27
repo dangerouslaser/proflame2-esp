@@ -1,7 +1,12 @@
 #pragma once
 
-#include "esphome.h"
+// Intentionally avoid <esphome.h> here: the aggregate header drags in every
+// component (including proflame2_climate.h), which would create a circular
+// include chain because proflame2_climate.h depends on this file's
+// ProFlame2Component definition. Use explicit per-component includes instead.
 #include "esphome/core/component.h"
+#include "esphome/core/gpio.h"
+#include "esphome/core/hal.h"
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/light/light_output.h"
@@ -9,9 +14,13 @@
 #include "esphome/components/fan/fan.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/button/button.h"
+#include <algorithm>
+#include <cstring>
 
 namespace esphome {
 namespace proflame2 {
+
+class ProFlame2Climate;  // forward decl — defined in proflame2_climate.h
 
 // CC1101 Register definitions
 static const uint8_t CC1101_IOCFG2 = 0x00;
@@ -131,6 +140,9 @@ class ProFlame2Component : public Component,
   // Light entity (replaces the old light Number); set by codegen so the parent
   // can force the light off when the fireplace powers down.
   void set_light_state(light::LightState *state) { this->light_state_ = state; }
+  // Climate entity (optional). Lets the parent notify climate of manual
+  // power/mode changes so it can re-publish action.
+  void set_climate(ProFlame2Climate *clim) { this->climate_ = clim; }
 
   // DEBUG FUNCTIONS
   void debug_minimal_tx();
@@ -174,6 +186,7 @@ class ProFlame2Component : public Component,
   number::Number *flame_number_{nullptr};
   number::Number *fan_number_{nullptr};
   light::LightState *light_state_{nullptr};
+  ProFlame2Climate *climate_{nullptr};
 
   bool spi_ready_{false};
 
