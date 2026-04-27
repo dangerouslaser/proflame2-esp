@@ -12,11 +12,14 @@ static const char *const TAG = "proflame2.climate";
 void ProFlame2Climate::set_sensor(sensor::Sensor *s) {
   this->sensor_ = s;
   if (s != nullptr) {
+    // Propagate NaN intentionally — when HA marks the upstream sensor as
+    // unavailable/unknown (HA reboot, source-entity error, etc.) the
+    // homeassistant platform publishes NaN. Letting it through keeps HA's
+    // climate card honest and lets run_hysteresis_() take its NaN-safety
+    // branch (which drops the burner) on the next tick.
     s->add_on_state_callback([this](float v) {
-      if (!std::isnan(v)) {
-        this->current_temperature = v;
-        this->publish_state();
-      }
+      this->current_temperature = v;
+      this->publish_state();
     });
   }
 }
@@ -166,8 +169,22 @@ void ProFlame2Climate::run_hysteresis_() {
   const float current = this->current_temperature;
   const float target = this->target_temperature;
   if (std::isnan(current) || std::isnan(target)) {
+    // Lost the temperature feed (HA unavailable, helper error, etc.). This is
+    // a gas appliance — fail safe by dropping the burner if it's currently on.
+    bool republish = false;
+    if (this->parent_ != nullptr && this->parent_->current_state_.power) {
+      ESP_LOGW(TAG, "Temperature unavailable; shutting fireplace down");
+      this->parent_->set_secondary_flame(false);
+      this->parent_->set_fan_level(0);
+      this->parent_->set_power(false);
+      this->parent_->queue_send();
+      republish = true;
+    }
     if (this->action != climate::CLIMATE_ACTION_IDLE) {
       this->action = climate::CLIMATE_ACTION_IDLE;
+      republish = true;
+    }
+    if (republish) {
       this->publish_state();
     }
     return;
