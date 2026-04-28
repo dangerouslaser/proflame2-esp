@@ -18,6 +18,7 @@
 #include "esphome/core/preferences.h"
 #include "proflame2_decode.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 
@@ -380,11 +381,20 @@ class ProFlame2Component : public Component,
 
   // RX state — populated by start_rx_capture(); consumed by service_rx_().
   // The ring is a single-producer (ISR) / single-consumer (loop task) queue.
+  // The indices are std::atomic so the ISR writing on one core and the loop
+  // reading on the other core are properly synchronized — `volatile` was
+  // only "atomic by accident" on single-core ESP32 and provides no memory
+  // ordering guarantees against compiler reordering across the data write.
+  // Pattern: producer (ISR) does relaxed-load tail / release-store head;
+  // consumer (loop) does acquire-load head / relaxed-store tail. The release
+  // on the head store pairs with the acquire on the head load to ensure the
+  // ring slot's payload is visible to the consumer before it observes the
+  // bumped head index.
   static constexpr size_t kRxRingSize = 1024;
   ProFlame2RxPulse rx_ring_[kRxRingSize]{};
-  volatile size_t rx_ring_head_{0};
-  volatile size_t rx_ring_tail_{0};
-  volatile uint32_t rx_overflow_count_{0};
+  std::atomic<size_t> rx_ring_head_{0};
+  std::atomic<size_t> rx_ring_tail_{0};
+  std::atomic<uint32_t> rx_overflow_count_{0};
   ISRInternalGPIOPin gdo0_isr_pin_{};
   bool rx_isr_attached_{false};
   bool rx_active_{false};
