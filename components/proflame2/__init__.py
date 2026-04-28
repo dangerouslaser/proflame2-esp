@@ -11,17 +11,19 @@ from esphome.components import (
     binary_sensor,
     display,
     font,
+    text_sensor,
 )
 from esphome.const import (
     CONF_ID,
     CONF_CS_PIN,
     CONF_OUTPUT_ID,
     CONF_SENSOR,
+    ENTITY_CATEGORY_DIAGNOSTIC,
 )
 from esphome import pins
 
 DEPENDENCIES = ["spi", "switch", "number", "button", "light", "fan", "climate", "sensor"]
-AUTO_LOAD = ["switch", "number", "button", "light", "fan", "climate", "sensor", "binary_sensor"]
+AUTO_LOAD = ["switch", "number", "button", "light", "fan", "climate", "sensor", "binary_sensor", "text_sensor"]
 
 proflame2_ns = cg.esphome_ns.namespace("proflame2")
 ProFlame2Component = proflame2_ns.class_(
@@ -109,6 +111,13 @@ CONF_ECC_C1 = "c1"
 CONF_ECC_D1 = "d1"
 CONF_ECC_C2 = "c2"
 CONF_ECC_D2 = "d2"
+
+# Read-only diagnostic text-sensor exports of the active pairing identity.
+# All three are populated once at setup() (after NVS load) and re-published
+# whenever learn-mode commits a new candidate.
+CONF_SERIAL_NUMBER_SENSOR = "serial_number_sensor"
+CONF_ECC_CONSTANTS_SENSOR = "ecc_constants_sensor"
+CONF_PAIRING_SOURCE_SENSOR = "pairing_source_sensor"
 
 CONF_UI = "ui"
 CONF_DISPLAY = "display"
@@ -215,6 +224,18 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_CLIMATE): CLIMATE_SCHEMA,
         cv.Optional(CONF_UI): UI_SCHEMA,
+        cv.Optional(CONF_SERIAL_NUMBER_SENSOR): text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:identifier",
+        ),
+        cv.Optional(CONF_ECC_CONSTANTS_SENSOR): text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:key-variant",
+        ),
+        cv.Optional(CONF_PAIRING_SOURCE_SENSOR): text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:database-search",
+        ),
     }
 ).extend(spi.spi_device_schema())
 
@@ -351,6 +372,19 @@ async def to_code(config):
         await cg.register_component(btn, conf)
         await button.register_button(btn, conf)
         cg.add(btn.set_parent(var))
+
+    # Diagnostic text sensors — populated by the C++ component at setup() once
+    # the NVS-vs-YAML resolution is done, and re-published on a successful
+    # learn-mode commit.
+    if CONF_SERIAL_NUMBER_SENSOR in config:
+        ts = await text_sensor.new_text_sensor(config[CONF_SERIAL_NUMBER_SENSOR])
+        cg.add(var.set_serial_number_sensor(ts))
+    if CONF_ECC_CONSTANTS_SENSOR in config:
+        ts = await text_sensor.new_text_sensor(config[CONF_ECC_CONSTANTS_SENSOR])
+        cg.add(var.set_ecc_constants_sensor(ts))
+    if CONF_PAIRING_SOURCE_SENSOR in config:
+        ts = await text_sensor.new_text_sensor(config[CONF_PAIRING_SOURCE_SENSOR])
+        cg.add(var.set_pairing_source_sensor(ts))
 
     # Heat-mode config entities (consumed by the climate). Registered before
     # the climate so we can hand the references in at climate construction.

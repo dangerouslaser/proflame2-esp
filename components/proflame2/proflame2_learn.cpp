@@ -68,6 +68,7 @@ bool ProFlame2Component::learn_confirm() {
 
   this->learn_state_ = LearnState::kPersisted;
   this->learn_persisted_ms_ = millis();
+  this->publish_diagnostic_sensors_();
   ESP_LOGI(TAG_LEARN,
            "Learned values committed: serial=0x%06X c1=0x%X d1=0x%X "
            "c2=0x%X d2=0x%X",

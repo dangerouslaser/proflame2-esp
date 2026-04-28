@@ -145,6 +145,7 @@ void ProFlame2Component::setup() {
 
   // NVS-backed learned state (serial + ECC) — overrides YAML when valid.
   this->load_learned_state_();
+  this->publish_diagnostic_sensors_();
 
   // init state — flame and fan default to max so a "Power ON" out of the
   // box gives the fireplace a usable burner level + airflow without the
@@ -1049,6 +1050,26 @@ bool ProFlame2Component::load_learned_state_() {
            this->serial_number_, this->ecc_c1_, this->ecc_d1_, this->ecc_c2_,
            this->ecc_d2_);
   return true;
+}
+
+void ProFlame2Component::publish_diagnostic_sensors_() {
+  if (this->serial_number_sensor_ != nullptr) {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "0x%06X", this->serial_number_ & 0x00FFFFFFu);
+    this->serial_number_sensor_->publish_state(buf);
+  }
+  if (this->ecc_constants_sensor_ != nullptr) {
+    char buf[40];
+    snprintf(buf, sizeof(buf), "c1=0x%X d1=0x%X c2=0x%X d2=0x%X",
+             this->ecc_c1_, this->ecc_d1_, this->ecc_c2_, this->ecc_d2_);
+    this->ecc_constants_sensor_->publish_state(buf);
+  }
+  if (this->pairing_source_sensor_ != nullptr) {
+    const char *source =
+        (this->config_source_ == ConfigSource::kNvsLearned) ? "NVS (learned)"
+                                                            : "YAML";
+    this->pairing_source_sensor_->publish_state(source);
+  }
 }
 
 void ProFlame2ConfigNumber::setup() {

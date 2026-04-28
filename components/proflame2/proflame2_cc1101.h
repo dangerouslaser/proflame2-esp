@@ -14,6 +14,7 @@
 #include "esphome/components/fan/fan.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/button/button.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/preferences.h"
 #include "proflame2_decode.h"
 #include <algorithm>
@@ -196,6 +197,20 @@ class ProFlame2Component : public Component,
   // power/mode changes so it can re-publish action.
   void set_climate(ProFlame2Climate *clim) { this->climate_ = clim; }
 
+  // Read-only diagnostic text sensors that surface the active pairing
+  // identity (serial, ECC constants, source) to Home Assistant. All three
+  // are optional; whichever are wired get populated by
+  // publish_diagnostic_sensors_() at setup() and after each learn commit.
+  void set_serial_number_sensor(text_sensor::TextSensor *ts) {
+    this->serial_number_sensor_ = ts;
+  }
+  void set_ecc_constants_sensor(text_sensor::TextSensor *ts) {
+    this->ecc_constants_sensor_ = ts;
+  }
+  void set_pairing_source_sensor(text_sensor::TextSensor *ts) {
+    this->pairing_source_sensor_ = ts;
+  }
+
   // RX capture (async serial mode). The ISR pushes (timestamp_us, level)
   // pairs into a lock-free ring buffer; service_rx_() drains it in loop()
   // and feeds the decoder when a learn flow is active. Refuses to start
@@ -298,6 +313,10 @@ class ProFlame2Component : public Component,
   // its serial + ECC values applied (overriding YAML defaults).
   bool load_learned_state_();
 
+  // Publish the current serial / ECC / source to the diagnostic text
+  // sensors (if wired). Safe to call any time; no-op for unset sensors.
+  void publish_diagnostic_sensors_();
+
   // Switch the CC1101 between idle, TX-ready, and RX-ready register sets.
   // Idempotent — re-applying the current mode is a no-op. Always strobes SIDLE
   // first so callers don't need to worry about prior chip state. Does NOT
@@ -348,6 +367,11 @@ class ProFlame2Component : public Component,
   // it via get_config_source().
   ConfigSource config_source_{ConfigSource::kYaml};
   ESPPreferenceObject pref_learned_;
+
+  // Diagnostic text sensor exports (optional; nullptr when not wired in YAML).
+  text_sensor::TextSensor *serial_number_sensor_{nullptr};
+  text_sensor::TextSensor *ecc_constants_sensor_{nullptr};
+  text_sensor::TextSensor *pairing_source_sensor_{nullptr};
 
   // Current CC1101 mode tracking. Initialized to kIdle; configure_cc1101()
   // sets it to kTx after the boot register write. Future RX driver flips

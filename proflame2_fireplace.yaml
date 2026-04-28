@@ -126,6 +126,16 @@ proflame2:
     name: "Cancel Pairing"
     icon: "mdi:close-circle-outline"
 
+  # Read-only diagnostic exports of the active pairing identity. Populated
+  # at boot from whichever source won (NVS or YAML); refreshed automatically
+  # on a successful learn-mode commit. Surfaces in HA's Diagnostics panel.
+  serial_number_sensor:
+    name: "Serial Number"
+  ecc_constants_sensor:
+    name: "ECC Constants"
+  pairing_source_sensor:
+    name: "Pairing Source"
+
   # Persistent heat-mode behavior (applied each time the climate auto-activates
   # the burner). Tweak at runtime in HA — no reflash needed.
   heat_flame_level:
