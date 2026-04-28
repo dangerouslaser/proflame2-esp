@@ -755,12 +755,12 @@ void ProFlame2Component::set_power(bool state) {
       if (this->current_state_.light_level != 0) {
         this->remembered_light_level_ = this->current_state_.light_level;
       }
-      // Secondary flame: only stash when ON, mirroring the light's
-      // "preserve last positive" behavior. Otherwise an explicit OFF
-      // followed by power-cycle would forget the previous ON preference.
-      if (this->current_state_.secondary_flame) {
-        this->remembered_secondary_flame_ = true;
-      }
+      // Secondary flame: stash the user's current preference unconditionally.
+      // Unlike the light (where 0 means "off, no remembered brightness to
+      // preserve"), secondary is a binary preference where OFF is just as
+      // valid a choice as ON — preserving the user's last toggle is the
+      // correct semantic.
+      this->remembered_secondary_flame_ = this->current_state_.secondary_flame;
       this->current_state_.light_level = 0;
       if (this->light_state_ != nullptr) {
         this->light_state_->turn_off().set_transition_length(0).perform();
