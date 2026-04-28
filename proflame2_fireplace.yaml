@@ -94,10 +94,6 @@ proflame2:
     name: "Secondary Flame"
     icon: "mdi:fire"
 
-  send:
-    name: "Send Commands"
-    icon: "mdi:send"
-
   # Persistent heat-mode behavior (applied each time the climate auto-activates
   # the burner). Tweak at runtime in HA — no reflash needed.
   heat_flame_level:

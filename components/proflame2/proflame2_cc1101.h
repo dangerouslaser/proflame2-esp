@@ -509,16 +509,6 @@ class ProFlame2HeatSecondaryFlameSwitch : public switch_::Switch, public Compone
   float get_setup_priority() const override { return setup_priority::DATA; }
 };
 
-class ProFlame2SendButton : public button::Button, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-
- protected:
-  void press_action() override { this->parent_->queue_send(); }
-
-  ProFlame2Component *parent_{nullptr};
-};
-
 // HA-side trigger to start the learn-mode pairing flow without needing to
 // physically press the on-device pair button. Confirming the captured
 // constants still requires an on-device long-press — intentional, since this

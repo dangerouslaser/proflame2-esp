@@ -174,10 +174,6 @@ proflame2:
     name: "Secondary Flame"
     icon: "mdi:fire"
 
-  send:
-    name: "Send Commands"
-    icon: "mdi:send"
-
   # HA-side trigger to start learn-mode pairing. Confirmation still requires
   # an on-device encoder long-press once the captured values converge —
   # intentional safety gate, since this commits values for a gas appliance.

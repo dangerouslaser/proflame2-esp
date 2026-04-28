@@ -72,9 +72,6 @@ ProFlame2Climate = proflame2_ns.class_(
 # with a screen and rotary encoder, e.g. the LilyGo T-Embed CC1101.
 ProFlame2UI = proflame2_ns.class_("ProFlame2UI", cg.Component)
 
-ProFlame2SendButton = proflame2_ns.class_(
-    "ProFlame2SendButton", button.Button, cg.Component
-)
 ProFlame2PairButton = proflame2_ns.class_(
     "ProFlame2PairButton", button.Button, cg.Component
 )
@@ -93,7 +90,6 @@ CONF_SECONDARY_FLAME = "secondary_flame"
 CONF_FLAME = "flame"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
-CONF_SEND = "send"
 CONF_PAIR = "pair"
 CONF_CLIMATE = "climate"
 CONF_HYSTERESIS = "hysteresis"
@@ -197,7 +193,6 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FLAME): number.number_schema(ProFlame2FlameNumber),
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
         cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
-        cv.Optional(CONF_SEND): button.button_schema(ProFlame2SendButton),
         cv.Optional(CONF_PAIR): button.button_schema(ProFlame2PairButton),
         cv.Optional(CONF_HEAT_FLAME_LEVEL): number.number_schema(ProFlame2ConfigNumber),
         cv.Optional(CONF_HEAT_FAN_LEVEL): number.number_schema(ProFlame2ConfigNumber),
@@ -321,13 +316,6 @@ async def to_code(config):
         cg.add(out.set_parent(var))
         light_state = await cg.get_variable(conf[CONF_ID])
         cg.add(var.set_light_state(light_state))
-
-    if CONF_SEND in config:
-        conf = config[CONF_SEND]
-        btn = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(btn, conf)
-        await button.register_button(btn, conf)
-        cg.add(btn.set_parent(var))
 
     if CONF_PAIR in config:
         conf = config[CONF_PAIR]

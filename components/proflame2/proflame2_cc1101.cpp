@@ -718,6 +718,7 @@ void ProFlame2Component::set_power(bool state) {
         this->secondary_flame_switch_->publish_state(true);
       }
     }
+    this->queue_send();
   }
 }
 
@@ -729,6 +730,7 @@ void ProFlame2Component::set_pilot_mode(bool cpi_mode) {
       this->pilot_switch_->publish_state(cpi_mode);
     }
     ESP_LOGI(TAG, "Pilot mode set to %s", cpi_mode ? "CPI" : "IPI");
+    this->queue_send();
   }
 }
 
@@ -743,6 +745,7 @@ void ProFlame2Component::set_flame_level(uint8_t level) {
       this->flame_number_->publish_state(level);
     }
     ESP_LOGI(TAG, "Flame level set to %d", level);
+    this->queue_send();
   }
 }
 
@@ -757,6 +760,7 @@ void ProFlame2Component::set_fan_level(uint8_t level) {
       this->fan_number_->publish_state(level);
     }
     ESP_LOGI(TAG, "Fan level set to %d", level);
+    this->queue_send();
   }
 }
 
@@ -788,6 +792,7 @@ void ProFlame2Component::set_light_level(uint8_t level) {
       call.perform();
     }
     ESP_LOGI(TAG, "Light level set to %d", level);
+    this->queue_send();
   }
 }
 
@@ -839,6 +844,7 @@ void ProFlame2Component::set_aux_power(bool state) {
       this->aux_switch_->publish_state(state);
     }
     ESP_LOGI(TAG, "Aux power set to %s", state ? "ON" : "OFF");
+    this->queue_send();
   }
 }
 
@@ -861,6 +867,7 @@ void ProFlame2Component::set_secondary_flame(bool state) {
       this->secondary_flame_switch_->publish_state(state);
     }
     ESP_LOGI(TAG, "Secondary flame set to %s", state ? "ON" : "OFF");
+    this->queue_send();
   }
 }
 
@@ -872,6 +879,7 @@ void ProFlame2Component::set_thermostat(bool state) {
       this->thermostat_switch_->publish_state(state);
     }
     ESP_LOGI(TAG, "Thermostat set to %s", state ? "ON" : "OFF");
+    this->queue_send();
   }
 }
 

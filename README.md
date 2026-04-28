@@ -130,12 +130,11 @@ proflame2:
   fan:             { name: "Fan Speed",        icon: "mdi:fan",  mode: slider }
   light:           { name: "Fireplace Light",  icon: "mdi:lightbulb" }
   secondary_flame: { name: "Secondary Flame",  icon: "mdi:fire" }
-  send:            { name: "Send Commands",    icon: "mdi:send" }
 ```
 
-The original 8 entities (4 switches, 2 numbers, 1 light, 1 button) remain
-available for manual override. The new climate + heat-config entities are
-**additive** — you can ignore them entirely if you want the simple manual UI.
+Setters auto-transmit on every change — no manual "Send Commands" button is
+needed. The new climate + heat-config entities are **additive** — you can
+ignore them entirely if you want the simple manual UI.
 
 ## Climate (thermostat) configuration
 
