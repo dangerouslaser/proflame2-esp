@@ -3,6 +3,15 @@
 Control your ProFlame 2 gas fireplace from Home Assistant (and HomeKit, if you
 bridge HA into HomeKit) using an ESP32 + CC1101 RF module. Pure-local, no cloud.
 
+Two hardware paths supported:
+
+- **Generic ESP32 + breakout CC1101** — wire it up yourself, control via HA.
+  Example: [`proflame2_fireplace.yaml`](./proflame2_fireplace.yaml).
+- **LilyGo T-Embed CC1101** (ESP32-S3 with integrated CC1101 + 1.9" LCD +
+  rotary encoder + battery) — no wiring, plus a standalone physical UI that
+  works when HA is offline AND on-device learn-mode pairing (no SDR needed).
+  Example: [`proflame2_tembed.yaml`](./proflame2_tembed.yaml).
+
 This fork (`dangerouslaser/proflame2-esp`) adds:
 
 - A real `climate` entity (HEAT/OFF thermostat) so HA's HomeKit bridge can
@@ -19,6 +28,10 @@ This fork (`dangerouslaser/proflame2-esp`) adds:
 - The two ECC pairing-constant pairs that go at the end of every TX packet are
   now YAML-configurable (`ecc_constants:`) instead of hardcoded — see
   [Pairing your remote](#pairing-your-remote).
+- **T-Embed-only:** standalone LCD + rotary encoder UI (operates the fireplace
+  without HA / WiFi) and on-device learn-mode pairing that recovers the serial
+  number + ECC constants from your existing OEM remote — no SDR, no rtl_433,
+  no manual YAML edits. See [Pairing on-device](#pairing-on-device-t-embed-cc1101).
 
 Inherited from prior forks (marksieczkowski → j2deen): ESP-IDF framework,
 secondary flame support, non-blocking TX state machine, send button.
@@ -37,13 +50,23 @@ secondary flame support, non-blocking TX state machine, send button.
 
 ## Hardware Requirements
 
+Pick **one** of:
+
+**A. Generic ESP32 + CC1101 breakout**
 - ESP32 development board (ESP-IDF framework)
 - CC1101 RF module (the **433 MHz** variant — the same hardware tunes down to
   314.973 MHz for ProFlame 2)
 - Jumper wires
 - USB power (3.3 V from the ESP32 is enough for the CC1101)
 
+**B. LilyGo T-Embed CC1101**
+- All-in-one: ESP32-S3, integrated CC1101, 1.9" ST7789V LCD, rotary encoder
+  + push-button, 8 MB OPI PSRAM, 16 MB flash, battery + USB-C charging.
+- No wiring — everything is on the same PCB. Just flash and pair.
+
 ## Wiring
+
+For path **A** (generic ESP32 + CC1101 breakout):
 
 ```
 ESP32          CC1101
@@ -57,6 +80,19 @@ GPIO19  <-->   MISO  (TX-only would technically work without this)
 GPIO22  <-->   GDO0  (used as TX-FIFO threshold indicator)
               GDO2  (not connected)
 ```
+
+For path **B** (T-Embed CC1101): no wiring required. Pin map (verified
+against the official LilyGo repo):
+
+| Function | GPIO | Function | GPIO |
+|---|---|---|---|
+| CC1101 CS | 12 | ST7789V CS | 41 |
+| CC1101 GDO0 | 3 | ST7789V DC | 16 |
+| CC1101 GDO2 | 38 | ST7789V RST | 40 |
+| Shared MOSI | 9 | ST7789V BL | 21 |
+| Shared MISO | 10 | Encoder A | 4 |
+| Shared SCLK | 11 | Encoder B | 5 |
+|  |  | Encoder Btn | 0 |
 
 ## Installation
 
@@ -184,11 +220,47 @@ the burner is running. The component enforces this in two places:
    forces the light entity off, so HA/HomeKit reflect reality whenever the
    fireplace shuts down (manually or via climate).
 
-## Pairing your remote
+## Pairing on-device (T-Embed CC1101)
 
-There are **two** pieces of information that are specific to your particular
-remote ↔ fireplace pairing. Both need to match what your physical remote was
-sending before you started, or the fireplace will ignore your packets.
+If you're on the T-Embed build, the easiest path is on-device learn-mode —
+no SDR, no rtl_433, no YAML editing. The device sniffs your existing OEM
+remote and recovers serial + all four ECC constants algebraically.
+
+1. Flash `proflame2_tembed.yaml` with **any** placeholder `serial_number` /
+   `ecc_constants` values — they're seed defaults that will be overridden.
+2. Boot the device. The LCD shows the normal state screen.
+3. **Hold the encoder button for 1.5 s.** The screen switches to "PAIRING
+   — Press a button on the OEM remote".
+4. With your OEM remote ~30 cm from the device, press any button (power,
+   flame up, light, whatever). The device displays the captured serial and
+   ECC values, plus a "valid packets: N/3" counter. Press 2 more times so
+   the counter reaches 3/3.
+5. The screen switches to "Hold button to confirm" with the candidate
+   values displayed in green. **Hold the encoder button** to commit. Short-
+   press cancels.
+6. The screen briefly shows "Saved." and returns to the normal state.
+
+Done. The pairing is in NVS and survives reboots. `dump_config()` after the
+next reboot will report `Serial Number: 0x… (NVS v1 (learned))`.
+
+If 60 s elapses with fewer than 3 agreeing packets the screen shows
+"Pairing failed — Press to retry"; press once to dismiss, hold to start
+over.
+
+**Safety gates** (gas appliance — these all have to hold simultaneously
+before the device will let you confirm):
+- 3+ valid packets within a single 60 s capture window.
+- All packets agree on serial AND all four ECC constants byte-for-byte.
+- Each packet's checksum cross-validates against the inferred (c, d).
+- Confirmation is a hold, not a tap, so a stray bump can't commit.
+
+If any of those fail, the device discards everything and re-listens.
+
+## Pairing via SDR (any board)
+
+The traditional path — works on every supported board, including the generic
+ESP32 + CC1101. Two pieces of information need to match what your physical
+remote was sending, or the fireplace will ignore your packets.
 
 ### 1. Serial number (24 bits)
 

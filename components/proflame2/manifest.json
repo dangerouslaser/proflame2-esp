@@ -1,17 +1,17 @@
 {
   "domain": "proflame2",
   "name": "ProFlame 2 Fireplace Control",
-  "documentation": "https://github.com/marksieczkowski/proflame2-esp",
-  "dependencies": ["spi","switch","number","light","fan", "button"],
-  "codeowners": ["@marksieczkowski","@j2deen"],
+  "documentation": "https://github.com/dangerouslaser/proflame2-esp",
+  "dependencies": ["spi","switch","number","light","fan", "button","binary_sensor"],
+  "codeowners": ["@dangerouslaser","@marksieczkowski","@j2deen"],
   "requirements": [],
-  "version": "3.0.0",
-  "author": "Mark Sieczkowski, Jay Deen",
+  "version": "4.0.0",
+  "author": "Bryan Hoban, Mark Sieczkowski, Jay Deen",
   "license": "MIT",
-  "description": "Control ProFlame 2 fireplace systems using ESP32 and CC1101 RF module",
+  "description": "Control ProFlame 2 fireplace systems using ESP32 (or LilyGo T-Embed CC1101) and a CC1101 RF module",
   "hardware": {
-    "supported": ["ESP32"],
-    "required": ["CC1101 433MHz RF Module"]
+    "supported": ["ESP32", "ESP32-S3", "LilyGo T-Embed CC1101"],
+    "required": ["CC1101 RF Module (315 MHz tunable)"]
   },
   "features": [
     "Power on/off control",
@@ -21,6 +21,10 @@
     "Secondary flame control",
     "IPI/CPI pilot mode selection",
     "Auxiliary power control",
+    "HEAT/OFF climate (thermostat) entity with HA temperature sensor",
+    "Persistent heat-mode config entities (flame/fan/secondary)",
+    "On-device LCD + rotary encoder UI (T-Embed CC1101)",
+    "On-device learn-mode pairing (recovers serial + ECC from OEM remote)",
     "Home Assistant integration",
     "Web interface",
     "MQTT support",
