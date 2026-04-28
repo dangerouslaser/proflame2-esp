@@ -259,10 +259,17 @@ void ProFlame2UI::on_button_release_() {
       return;
     }
     if (this->selected_ == Field::kSecondary) {
-      const bool new_state = !this->parent_->current_state_.secondary_flame;
-      this->parent_->set_secondary_flame(new_state);
+      // Base the toggle on the live state when power is on, on the
+      // remembered preference when power is off. set_secondary_flame
+      // routes to the right destination (current vs remembered) based
+      // on power state.
+      const bool base =
+          this->parent_->current_state_.power
+              ? this->parent_->current_state_.secondary_flame
+              : this->parent_->get_remembered_secondary_flame();
+      this->parent_->set_secondary_flame(!base);
       this->parent_->queue_send();
-      ESP_LOGI(TAG, "Toggle SEC FLAME → %s", new_state ? "ON" : "OFF");
+      ESP_LOGI(TAG, "Toggle SEC FLAME → %s", !base ? "ON" : "OFF");
       return;
     }
     if (this->selected_ == Field::kLeds) {
@@ -295,15 +302,14 @@ bool ProFlame2UI::is_field_navigable_(Field f) const {
   if (this->parent_ == nullptr) {
     return true;
   }
-  // Light + secondary flame are hardware-gated by the burner — when power
-  // is off, skip them in the navigation cycle entirely. POWER and INFO are
-  // always reachable so the cycle never starves.
-  if (!this->parent_->current_state_.power &&
-      (f == Field::kLight || f == Field::kSecondary)) {
-    return false;
-  }
-  // The LED-toggle field only makes sense when a switch is wired. Hide it
-  // entirely on builds without a status-LED strip (plain ESP32, etc).
+  // LIGHT and SECONDARY are both editable even when power is off — the
+  // user's choice is stashed in remembered_light_level_ /
+  // remembered_secondary_flame_ and applied on the next set_power(true).
+  // Letting them pre-dial avoids the "turn fireplace on then immediately
+  // walk back to dial things in" friction.
+  //
+  // The LED-toggle field only makes sense when a switch is wired. Hide
+  // it entirely on builds without a status-LED strip (plain ESP32, etc).
   if (f == Field::kLeds && this->leds_switch_ == nullptr) {
     return false;
   }
@@ -372,8 +378,14 @@ void ProFlame2UI::apply_delta_to_selected_(int direction) {
       break;
     }
     case Field::kLight: {
-      int v = static_cast<int>(state.light_level) + direction;
-      v = std::clamp(v, 0, 6);
+      // When power is on, base the delta on the live level. When power is
+      // off, base it on the remembered preference so the user can dial up
+      // a pre-set level even though current_state_.light_level is 0.
+      const int base = state.power
+                           ? static_cast<int>(state.light_level)
+                           : static_cast<int>(
+                                 this->parent_->get_remembered_light_level());
+      int v = std::clamp(base + direction, 0, 6);
       this->parent_->set_light_level(static_cast<uint8_t>(v));
       break;
     }
@@ -408,8 +420,20 @@ int ProFlame2UI::field_value_(Field f) const {
     case Field::kFlame:     return state.flame_level;
     case Field::kFan:       return state.fan_level;
     case Field::kPower:     return state.power ? 1 : 0;
-    case Field::kSecondary: return state.secondary_flame ? 1 : 0;
-    case Field::kLight:     return state.light_level;
+    case Field::kSecondary:
+      // Same as kLight: live when power is on, remembered preference
+      // when power is off. The burner is physically dark in the off
+      // case, but the dial reflects the user's intent.
+      return (state.power ? state.secondary_flame
+                          : this->parent_->get_remembered_secondary_flame())
+                 ? 1
+                 : 0;
+    // Show the user's intent: live level when on, remembered preference
+    // when off. The bulb is physically dark when power is off, but the
+    // dial reflects what the user has chosen for the next power-on.
+    case Field::kLight:
+      return state.power ? state.light_level
+                         : this->parent_->get_remembered_light_level();
     case Field::kLeds:
       return (this->leds_switch_ != nullptr && this->leds_switch_->state) ? 1
                                                                           : 0;

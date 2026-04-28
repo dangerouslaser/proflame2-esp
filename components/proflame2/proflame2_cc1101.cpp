@@ -148,14 +148,16 @@ void ProFlame2Component::setup() {
 
   // init state — flame and fan default to max so a "Power ON" out of the
   // box gives the fireplace a usable burner level + airflow without the
-  // user having to dial them up first. Light stays 0 (it's the kind of
-  // thing you opt into per session), and pilot/aux/secondary stay off.
+  // user having to dial them up first. Secondary flame defaults to ON
+  // (mirroring the seed value of remembered_secondary_flame_). Light
+  // stays 0 (it's the kind of thing you opt into per session), and
+  // pilot/aux stay off.
   this->current_state_ = ProFlame2Command{
       .pilot_cpi = false,
       .light_level = 0,
       .thermostat = false,
       .power = false,
-      .secondary_flame = false,
+      .secondary_flame = true,
       .fan_level = 6,
       .aux_power = false,
       .flame_level = 6};
@@ -743,9 +745,21 @@ void ProFlame2Component::set_power(bool state) {
     ESP_LOGI(TAG, "Power set to %s", state ? "ON" : "OFF");
 
     if (!state) {
-      // Hardware reality: light + secondary flame don't function without the
-      // burner running. Mirror that to HA/HomeKit by force-clearing both
-      // whenever we power down.
+      // Hardware reality: light + secondary flame don't function without
+      // the burner running. Mirror that to HA/HomeKit by force-clearing
+      // both whenever we power down. Stash the last *non-zero* light
+      // level and the current secondary-flame state so set_power(true)
+      // can restore the user's preference instead of dragging them back
+      // to 0/OFF.
+      if (this->current_state_.light_level != 0) {
+        this->remembered_light_level_ = this->current_state_.light_level;
+      }
+      // Secondary flame: only stash when ON, mirroring the light's
+      // "preserve last positive" behavior. Otherwise an explicit OFF
+      // followed by power-cycle would forget the previous ON preference.
+      if (this->current_state_.secondary_flame) {
+        this->remembered_secondary_flame_ = true;
+      }
       this->current_state_.light_level = 0;
       if (this->light_state_ != nullptr) {
         this->light_state_->turn_off().set_transition_length(0).perform();
@@ -755,13 +769,32 @@ void ProFlame2Component::set_power(bool state) {
         this->secondary_flame_switch_->publish_state(false);
       }
     } else {
-      // Power on: default secondary flame to ON. Callers that need a
-      // different default (e.g. the climate honoring its heat_secondary_flame
-      // config) override this by calling set_secondary_flame() AFTER
+      // Restore the user's secondary-flame preference. Defaults to ON
+      // (remembered_secondary_flame_ seeds true) so a fresh boot's first
+      // power-on lights both burners. Callers that need a different
+      // default (e.g. the climate honoring its heat_secondary_flame
+      // config) still override by calling set_secondary_flame() AFTER
       // set_power(true).
-      this->current_state_.secondary_flame = true;
+      this->current_state_.secondary_flame = this->remembered_secondary_flame_;
       if (this->secondary_flame_switch_) {
-        this->secondary_flame_switch_->publish_state(true);
+        this->secondary_flame_switch_->publish_state(
+            this->remembered_secondary_flame_);
+      }
+      // Restore the user's last non-zero light level so toggling power
+      // round-trips cleanly. If they never had it on, this is a no-op.
+      if (this->remembered_light_level_ != 0 &&
+          this->current_state_.light_level == 0) {
+        this->current_state_.light_level = this->remembered_light_level_;
+        if (this->light_state_ != nullptr) {
+          // Brightness 1..100% maps to fireplace levels 1..6 — same math
+          // as ProFlame2Light::write_state, just inverted.
+          const float brightness =
+              static_cast<float>(this->remembered_light_level_) / 6.0f;
+          auto call = this->light_state_->turn_on();
+          call.set_brightness(brightness);
+          call.set_transition_length(0);
+          call.perform();
+        }
       }
     }
     this->queue_send();
@@ -815,11 +848,20 @@ void ProFlame2Component::set_light_level(uint8_t level) {
     level = 6;
   }
   // Hardware constraint: the fireplace light only operates while the burner
-  // is running. Reject any non-zero level when power is off, and snap the
-  // light entity back to off so HA/HomeKit doesn't show a sticky-on state.
-  if (level > 0 && !this->current_state_.power) {
-    ESP_LOGW(TAG, "Cannot set light level while power is off");
-    if (this->light_state_ != nullptr && this->light_state_->remote_values.is_on()) {
+  // is running. When power is off we still let the user pre-dial the level
+  // they want — store it in remembered_light_level_ so set_power(true)
+  // restores it later, but don't touch current_state_ (stays 0) and don't
+  // turn the HA light entity on (the bulb genuinely isn't lit).
+  if (!this->current_state_.power) {
+    if (this->remembered_light_level_ != level) {
+      this->remembered_light_level_ = level;
+      ESP_LOGI(TAG, "Light level pre-set to %d (applies on next power-on)",
+               level);
+    }
+    // Snap the HA light entity to off if it's somehow on — the bulb
+    // physically can't be lit while power is off.
+    if (level == 0 && this->light_state_ != nullptr &&
+        this->light_state_->remote_values.is_on()) {
       this->light_state_->turn_off().set_transition_length(0).perform();
     }
     return;
@@ -895,12 +937,20 @@ void ProFlame2Component::set_aux_power(bool state) {
 }
 
 void ProFlame2Component::set_secondary_flame(bool state) {
-  // Secondary flame can only be ON while the burner is running. Reject any
-  // attempt to enable it with power off, and snap the HA toggle back so the
-  // dashboard doesn't show a sticky-ON state.
-  if (state && !this->current_state_.power) {
-    ESP_LOGW(TAG, "Cannot enable secondary flame while power is off");
-    if (this->secondary_flame_switch_ &&
+  // Hardware constraint: the secondary burner only operates while the
+  // primary burner is running. When power is off we still let the user
+  // pre-dial their preference for the next power-on — same model as
+  // set_light_level. The HA toggle stays OFF in this case (since the
+  // burner physically isn't lit) but remembered_secondary_flame_ tracks
+  // intent.
+  if (!this->current_state_.power) {
+    if (this->remembered_secondary_flame_ != state) {
+      this->remembered_secondary_flame_ = state;
+      ESP_LOGI(TAG,
+               "Secondary flame pre-set to %s (applies on next power-on)",
+               state ? "ON" : "OFF");
+    }
+    if (!state && this->secondary_flame_switch_ &&
         this->secondary_flame_switch_->state) {
       this->secondary_flame_switch_->publish_state(false);
     }

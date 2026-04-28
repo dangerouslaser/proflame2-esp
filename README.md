@@ -25,16 +25,31 @@ This fork (`dangerouslaser/proflame2-esp`) adds:
 - Three persistent config entities for tuning the climate's auto-activation
   behavior: **Heat Flame Level**, **Heat Fan Level**, **Heat Secondary Flame**.
   Adjust at runtime in HA — no reflash.
-- The two ECC pairing-constant pairs that go at the end of every TX packet are
-  now YAML-configurable (`ecc_constants:`) instead of hardcoded — see
-  [Pairing your remote](#pairing-your-remote).
-- **T-Embed-only:** standalone LCD + rotary encoder UI (operates the fireplace
-  without HA / WiFi) and on-device learn-mode pairing that recovers the serial
-  number + ECC constants from your existing OEM remote — no SDR, no rtl_433,
-  no manual YAML edits. See [Pairing on-device](#pairing-on-device-t-embed-cc1101).
+- All pairing-time constants (24-bit serial + four 4-bit ECC values) are
+  YAML-configurable (`ecc_constants:`) and override-able via NVS. The on-device
+  learn-mode flow writes them automatically — see
+  [Pairing your remote](#pairing-on-device-t-embed-cc1101).
+- Setters auto-transmit on every change — no manual "Send Commands" button.
+- Smart state restoration: light level and secondary-flame state are
+  remembered across power cycles. Toggling the fireplace OFF and back ON
+  brings them back where you left them. You can even pre-dial them while
+  power is off (HA-side and device-side).
+- **T-Embed-only**:
+  - Standalone LCD + rotary encoder UI that operates the fireplace without
+    HA or WiFi.
+  - On-device learn-mode pairing that recovers serial + ECC algebraically
+    from your existing OEM remote — no SDR, no rtl_433, no YAML edits.
+  - 8-pixel WS2812 strip on the bottom edge animates as a fire (red /
+    orange / yellow flicker) when the burner is on. Disable from HA or
+    via the device's settings cog.
+  - LCD backlight auto-dims after 30 s of no input; wakes on any encoder
+    or button press.
+- **Web server fallback** (any board with `web_server:` configured): the
+  ESPHome dashboard at `http://<device>/` is a fully usable manual UI when
+  HA is unreachable. See [Standalone web UI](#standalone-web-ui).
 
 Inherited from prior forks (marksieczkowski → j2deen): ESP-IDF framework,
-secondary flame support, non-blocking TX state machine, send button.
+secondary flame support, non-blocking TX state machine.
 
 ## Features
 
@@ -42,11 +57,15 @@ secondary flame support, non-blocking TX state machine, send button.
 - ✅ HEAT/OFF thermostat with HA-side temperature sensor (HomeKit-friendly)
 - ✅ Fireplace light as a real `light` entity (HomeKit Light)
 - ✅ Persistent heat-mode config (flame / fan / secondary flame)
-- ✅ All pairing-specific constants (serial number + ECC) are YAML-configurable
-- ✅ Original manual entities preserved: power, pilot mode, aux, secondary
-  flame, flame height (0–6), fan speed (0–6), send button
+- ✅ State restoration: light level + secondary flame remembered across
+  power cycles, pre-dial both while power is off
+- ✅ On-device learn-mode pairing (T-Embed): no SDR / no rtl_433 needed
+- ✅ Standalone LCD + rotary encoder UI that works without HA or WiFi
+- ✅ Animated WS2812 fire effect on the T-Embed's bottom-edge LED strip
+- ✅ Standalone ESPHome `web_server` UI as a no-HA fallback
+- ✅ Manual entities: power, pilot mode, aux, secondary flame, flame height
+  (0–6), fan speed (0–6), light (1–6 brightness)
 - ✅ No cloud dependency, fully local
-- ✅ Optional ESPHome `web_server` for standalone control
 
 ## Hardware Requirements
 
@@ -222,14 +241,84 @@ existing `fan` Number entity is still available for fine-grained 0–6 control.
 The fireplace light is a brightness-only `light::LightOutput`. Brightness
 1–100 % rounds to fireplace levels 1–6.
 
-**Hardware constraint**: the fireplace's light only physically operates while
-the burner is running. The component enforces this in two places:
+**Hardware constraint**: the fireplace's light only physically operates
+while the burner is running. The HA `light` entity reflects that reality —
+it goes off whenever the fireplace powers down and refuses an "on" attempt
+while power is off (with a warning in the log).
 
-1. `ProFlame2Light::write_state()` rejects "on" attempts when `power` is off,
-   logs a warning, and snaps the entity back to off.
-2. `ProFlame2Component::set_power(false)` zeros the cached light level and
-   forces the light entity off, so HA/HomeKit reflect reality whenever the
-   fireplace shuts down (manually or via climate).
+**State restoration**: the *level* you had selected is remembered across
+power cycles. If you had the light at 4, power off, then power on, it
+comes back at 4 — the HA entity, the device LCD, and the RF state all
+agree. You can also pre-dial a level via either surface while power is
+off; it'll apply on the next power-on.
+
+The same restoration applies to **Secondary Flame**: toggling the
+fireplace off doesn't lose your "secondary on/off" preference.
+
+## Boot defaults
+
+A fresh boot (or one that hasn't seen any user input yet) starts with:
+
+| Field | Default | Why |
+|---|---|---|
+| Power | OFF | Never auto-light a gas appliance. |
+| Flame Height | 6 | Useful burner level out of the box. |
+| Fan Speed | 6 | Match flame so the first power-on isn't silent. |
+| Secondary Flame | ON | Both burners light unless explicitly turned off. |
+| Fireplace Light | 0 | Opt-in; users typically set it per session. |
+| Pilot Mode | IPI | Standard for most installations. |
+| Aux Power | OFF | |
+
+Once you change any of these, the latest value is what gets restored on
+the next power-on (per-field, see "State restoration" above).
+
+## Device UI (T-Embed CC1101)
+
+The T-Embed build ships with a self-contained LCD + rotary encoder UI
+that operates the fireplace independently of HA / WiFi.
+
+**Idle screen** shows the current state of every controllable field
+plus a status bar (HA connectivity, battery, signal). The selection
+cursor highlights one field at a time.
+
+**Encoder gestures**:
+- **Rotate** in *navigate* mode — moves the cursor through fields in
+  order: FLAME → FAN → LIGHT → SEC FLAME → POWER → LEDs ⚙ → INFO.
+- **Click** a binary field (POWER, SEC FLAME, LEDs) — toggles it.
+- **Click** a numeric field (FLAME, FAN, LIGHT) — enters *edit* mode.
+- **Rotate** in *edit* mode — adjusts the field's value (clamped 0–6).
+- **Click** to exit *edit* mode back to *navigate*.
+- **Click** INFO — opens the info screen (serial, ECC, signal strength,
+  IP, uptime). Any rotation dismisses it.
+
+**Pre-dial while off**: LIGHT and SEC FLAME stay editable even when
+power is off. The values are stashed and applied on the next power-on,
+so you can dial in your preferred setup before lighting the fireplace.
+
+**Settings cog (LEDs)**: toggles the bottom-edge WS2812 fire animation.
+Same state as the HA `Status LEDs Enabled` switch — flipping one
+flips the other.
+
+**Pair button** (T-Embed CC1101's dedicated user button, GPIO 6):
+long-press to start learn-mode. Same effect as a long-press of the
+encoder button.
+
+**Backlight**: dims off after 30 s of no input; the next encoder turn
+or button press wakes it instantly.
+
+## Standalone web UI
+
+Every build configured with `web_server:` exposes the ESPHome dashboard
+at `http://<device-name>.local/` (or via the device's IP). It mirrors
+every entity the device exposes — POWER, FLAME, FAN, LIGHT, SEC FLAME,
+LEDs, climate, and the pair / confirm / cancel buttons — with toggles,
+sliders, and a brightness slider for the light. **No Home Assistant
+required**; it's a fully usable manual fallback when HA is offline or
+when you don't run HA at all.
+
+The example YAMLs ship with HTTP basic auth enabled — set the password
+via the `fireplace_remote_web_password` secret. Strip the `auth:` block
+if you'd rather not require credentials on a trusted LAN.
 
 ## Pairing on-device (T-Embed CC1101)
 
@@ -367,22 +456,49 @@ Special case: a frame with `cmd_byte = 0x00` makes the equation degenerate to
 
 ## Home Assistant entities
 
-After flashing, expect:
+After flashing, expect (entities you didn't enable in YAML are simply
+not exposed):
+
+**Manual controls**
 
 | Entity | Type | Notes |
 |---|---|---|
 | `switch.fireplace_power` | switch | manual on/off |
-| `switch.fireplace_pilot_mode` | switch | IPI/CPI |
-| `switch.fireplace_aux_power` | switch | aux outlet |
-| `switch.fireplace_secondary_flame` | switch | manual secondary flame |
-| `number.fireplace_flame_height` | number | 0–6, manual override |
-| `number.fireplace_fan_speed` | number | 0–6, manual override |
+| `number.fireplace_flame_height` | number | 0–6 |
+| `number.fireplace_fan_speed` | number | 0–6 |
 | `light.fireplace_light` | light | brightness 1–100 % → level 1–6, gated on power |
-| `button.fireplace_send_commands` | button | flush queued state |
+| `switch.fireplace_secondary_flame` | switch | secondary burner |
+| `switch.fireplace_aux_power` | switch | aux outlet |
+| `switch.fireplace_pilot_mode` | switch | IPI/CPI |
+
+**Climate (optional)**
+
+| Entity | Type | Notes |
+|---|---|---|
 | `climate.fireplace` | climate | HEAT/OFF thermostat with fan modes |
 | `number.fireplace_heat_flame_level` | number (config) | 1–6, used at burner-on |
 | `number.fireplace_heat_fan_level` | number (config) | 0–6, used at burner-on |
 | `switch.fireplace_heat_secondary_flame` | switch (config) | applied at burner-on |
+
+**Pairing (when learn-mode is wired up)**
+
+| Entity | Type | Notes |
+|---|---|---|
+| `button.fireplace_pair_remote` | button | start a 60 s capture window |
+| `button.fireplace_confirm_pairing` | button | commit captured serial+ECC to NVS |
+| `button.fireplace_cancel_pairing` | button | abort the capture |
+
+**T-Embed-only (LED strip)**
+
+| Entity | Type | Notes |
+|---|---|---|
+| `light.proflame2_tembed_status_leds` | light | manual control of the bottom-edge strip + effects |
+| `switch.proflame2_tembed_status_leds_enabled` | switch (config) | master enable for the auto fire animation |
+| `sensor.proflame2_tembed_battery` | sensor (diagnostic) | BQ27220 fuel gauge state-of-charge |
+
+The HA entity IDs above use the example-YAML names (`fireplace`,
+`proflame2_tembed`); yours will follow whatever `name:` you set in
+each YAML's top-level `esphome:` block.
 
 ## Protocol details
 
@@ -426,12 +542,30 @@ the pairing identity is encoded.
 
 ## Troubleshooting
 
-- **Fireplace ignores packets** → 90 % of the time this is wrong serial or
-  wrong ECC `(c, d)`. Capture a frame with rtl_433 and verify both.
+- **Fireplace ignores packets** → 90 % of the time this is the wrong serial
+  or wrong ECC `(c, d)`. On the T-Embed, just run on-device learn-mode
+  (long-press encoder, point at OEM remote, confirm). On any board, the
+  HA `Pair Remote` / `Confirm Pairing` buttons do the same.
+- **Pairing never converges** → confirm `gdo0_pin` is wired (plain ESP32
+  builds RX-disabled by default), and that the OEM remote is held within
+  ~30 cm of the ESP32. Check the logs for `decode: chips=… pkts=…` lines —
+  `pkts > 0` means RX is working; if you see only `chips=…` without `pkts`,
+  there's a signal-quality issue.
+- **TX stalls / fireplace stops responding to commands after a while** →
+  a long loop iteration (display redraw, WiFi housekeeping, learn-mode
+  service) can underflow the CC1101's TX FIFO, leaving the chip stuck.
+  The component now auto-recovers on the next user input; if you ever
+  see persistent silence, a power-cycle is the hard reset.
 - **Compile fails** → ESPHome ≥ 2024.7 needed for the climate fan-mode work;
   the climate entity also requires the ESP-IDF framework (Arduino is
   untested here).
-- **Light won't turn on** → by design, only when `power` is on.
+- **Light won't turn on** → by design, only when `power` is on. You can
+  pre-dial a level while power is off, though — it'll apply on the next
+  power-on.
+- **WS2812 strip shows blue when expecting orange/red** → check
+  `rgb_order:` in YAML. ESPHome's `chipset: WS2812` driver expects native
+  GRB order on the wire, even though the LilyGo example claims GBR (that
+  refers to FastLED's internal ordering, not the chip's wire format).
 - **HomeKit fan slider snaps from 0 % to LOW** → known limitation of HA's
   HomeKit bridge; it converts the slider via `percentage_to_ordered_list_item`
   with `[LOW, MIDDLE, MEDIUM, HIGH]` and has no off step.

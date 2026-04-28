@@ -265,6 +265,24 @@ class ProFlame2Component : public Component,
   uint8_t read_register(uint8_t reg);
 
   ProFlame2Command current_state_{};
+  // Last non-zero light level seen while power was on, OR a level the
+  // user pre-dialed via the UI while power was off. Restored by
+  // set_power(true) so toggling the fireplace doesn't lose the user's
+  // last brightness preference. Exposed via get_remembered_light_level()
+  // so the UI can display "LIGHT 4" while editing in the off state.
+  uint8_t remembered_light_level_{0};
+  uint8_t get_remembered_light_level() const {
+    return this->remembered_light_level_;
+  }
+  // Mirror of remembered_light_level_ for the binary secondary-flame
+  // setting. Defaults to true so a fresh boot's first power-on lights
+  // both burners as before. Updated by set_secondary_flame() while
+  // power is on (when ON) or while power is off (any change), and
+  // applied by set_power(true).
+  bool remembered_secondary_flame_{true};
+  bool get_remembered_secondary_flame() const {
+    return this->remembered_secondary_flame_;
+  }
   void transmit_command();
   void build_packet(uint8_t *packet);
   void encode_manchester(uint8_t *input, uint8_t *output, size_t input_len);
