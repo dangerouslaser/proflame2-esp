@@ -395,6 +395,20 @@ After flashing, expect:
 | **Packet** | 7 words × 13 bits = 91 bits per frame, 5 repeats per command, ≥200 ms between commands |
 | **Word layout** | sync(1) + start guard(1) + data(8) + pad(1) + parity(1) + end guard(1) + 1 |
 
+### RX architecture (learn-mode)
+
+The receive path mirrors `rtl_433_ESP`'s strategy: the CC1101 is configured at
+DATARATE 17.24 kbaud and 270 kHz RX bandwidth — well above the 2400-baud chip
+rate — so it acts as a raw OOK envelope detector rather than a clock-recovery
+demodulator. GDO0 fires an ISR on every envelope edge; edge timestamps land in
+a 1024-entry SPSC ring; on the inter-burst silence (>6 ms) we round each
+pulse-width to chip-count steps and pack it into a chip-rate-locked bit
+buffer. A linear scan of the buffer looks for the 4-chip `1110` sync,
+Manchester-decodes 11 bits per word, and validates the 7-word ProFlame frame.
+This is fundamentally more robust than per-edge streaming decode under WiFi
+ISR jitter — chip phase is anchored to chip-rate time, not edge time, so a
+single jittered edge can no longer permanently desync alignment.
+
 Word order:
 
 | word | content | source |
@@ -432,6 +446,8 @@ automations. Test thoroughly before relying on it.
 
 - Original protocol reverse engineering: [johnellinwood/smartfire](https://github.com/johnellinwood/smartfire)
 - ProFlame 2 protocol documentation: FCC ID T99058402300
+- ProFlame 2 decoder + decode-side reference: [merbanan/rtl_433 `proflame2.c`](https://github.com/merbanan/rtl_433/blob/master/src/devices/proflame2.c)
+- CC1101 "raw OOK envelope" RX architecture: [NorthernMan54/rtl_433_ESP](https://github.com/NorthernMan54/rtl_433_ESP)
 - ESPHome CC1101 examples: [LSatan/SmartRC-CC1101-Driver-Lib](https://github.com/LSatan/SmartRC-CC1101-Driver-Lib)
 - Upstream forks: [j2deen/proflame2-esp](https://github.com/j2deen/proflame2-esp)
   → [marksieczkowski/proflame2-esp](https://github.com/marksieczkowski/proflame2-esp)

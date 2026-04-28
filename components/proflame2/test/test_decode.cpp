@@ -191,7 +191,6 @@ TEST(rejects_bit_flip) {
   }
   EXPECT(st != ProFlame2Decoder::Status::kPacketReady,
          "bit-flipped packet incorrectly accepted");
-  EXPECT(d.framing_resets() > 0, "no framing reset reported");
 }
 
 TEST(rejects_dropped_chip) {

@@ -5,18 +5,26 @@
 // flash/serial cycle. The device build links it through ESPHome's normal
 // component pipeline; the host tests link it through components/proflame2/test/.
 //
-// Pipeline (all stages live in this one translation unit):
-//   edge stream
-//     -> pulse-width classifier (edge dt -> chip count of held level)
-//     -> Manchester pair decoder (01->0, 10->1, 11->S, 00->resync)
-//     -> 13-bit word framer (validates guard bits + parity)
-//     -> 91-bit packet aggregator (7 words; first word pad=1, rest pad=0)
-//     -> field extraction (serial[3], cmd1, cmd2, chk1, chk2)
-//     -> ECC inversion (direct algebra, no search) recovering c1,d1,c2,d2
+// Architecture: rtl_433-style buffered + PCM, NOT streaming.
 //
-// State is reset on any framing failure; the next valid S marker re-aligns.
-// All numeric tolerances are deliberately wide (±40% of bit time) to survive
-// WiFi-induced ISR jitter on ESP32-S3.
+//   edge stream
+//     -> per-edge: round dt to nearest chip count, append N held-level chips
+//        to a flat bit buffer (chip-rate-locked sampling — phase cannot drift
+//        from a single jittered edge)
+//     -> on burst end (gap > 6 ms) or buffer-full: scan_framer_() walks the
+//        buffer offline, looking at every offset for the 4-chip "1110" sync
+//        followed by 11 Manchester-decoded data bits, repeated 7 times
+//     -> on a valid 7-word match: extract fields, run ECC inversion (direct
+//        algebra), publish DecodedPacket
+//
+// Why buffered: a streaming Manchester decoder is fragile to ISR jitter —
+// any one ambiguous edge classification permanently shifts chip phase, and
+// no amount of soft-resetting can reconstruct the lost alignment without
+// re-scanning. The PCM-style sampler used here can't lose phase the same
+// way because each chip is anchored to chip-rate time, not edge time.
+//
+// Reference: github.com/merbanan/rtl_433 src/devices/proflame2.c, and
+// github.com/NorthernMan54/rtl_433_ESP for the CC1101 register strategy.
 
 #include <cstddef>
 #include <cstdint>
@@ -40,24 +48,33 @@ struct DecodedPacket {
 
 class ProFlame2Decoder {
  public:
-  // ProFlame 2 timing constants.
-  static constexpr uint32_t kHalfBitUs = 208;     // 4800 chip rate
-  static constexpr uint32_t kBitUs = 417;         // 2400 baud
-  static constexpr uint32_t kMaxInterWordGapUs = 5000;
+  // ProFlame 2 chip rate: 1/2400 baud ≈ 416 µs per Manchester chip. A data
+  // bit (= 2 chips) is therefore ~833 µs.
+  static constexpr uint32_t kHalfBitUs = 417;
+  static constexpr uint32_t kBitUs = 833;
 
-  // Pulse-width tolerance: ±40% of half-bit time. Wide enough to survive
-  // WiFi-driven ISR jitter without falsely rejecting valid packets.
-  static constexpr uint32_t kHalfBitMinUs = kHalfBitUs * 60 / 100;     // 124
-  static constexpr uint32_t kHalfBitMaxUs = kHalfBitUs * 140 / 100;    // 291
-  static constexpr uint32_t kBitMinUs = kBitUs * 60 / 100;             // 250
-  static constexpr uint32_t kBitMaxUs = kBitUs * 140 / 100;            // 583
-  static constexpr uint32_t kThreeChipMinUs = kHalfBitUs * 3 * 60 / 100;  // 374
-  static constexpr uint32_t kThreeChipMaxUs = kHalfBitUs * 3 * 140 / 100; // 873
+  // Inter-burst silence threshold. Below this, an edge belongs to the
+  // current burst; above it, the burst is complete and we can run the
+  // framer. Mirrors rtl_433's reset_limit=6000 in proflame2.c.
+  static constexpr uint32_t kBurstEndGapUs = 6000;
 
   // Packet dimensions.
+  //   sync per word = 4 chips (1110 = S + start_guard chip pair)
+  //   data per word = 11 Manchester bits (= 22 chips) [8 data + pad + parity + end_guard]
+  //   total per word = 26 chips
+  //   words per packet = 7
+  //   chips per packet = 182
   static constexpr size_t kWordCount = 7;
-  static constexpr size_t kWordBits = 13;          // S + 12 data bits
-  static constexpr size_t kWordDataBits = 12;      // bits AFTER the S marker
+  static constexpr size_t kSyncChips = 4;
+  static constexpr size_t kDataBitsPerWord = 11;
+  static constexpr size_t kChipsPerWord = kSyncChips + 2 * kDataBitsPerWord;
+  static constexpr size_t kChipsPerPacket = kWordCount * kChipsPerWord;
+
+  // Bit-buffer size. Sized for one full burst (5 packet repeats × 182 chips
+  // = 910 chips) plus headroom for inter-packet noise and chip-time
+  // rounding. Powers of 2 keep the bit-set/get arithmetic cheap.
+  static constexpr size_t kBitBufferBytes = 512;
+  static constexpr size_t kBitBufferBits = kBitBufferBytes * 8;
 
   enum class Status : uint8_t {
     kPending,        // need more edges/chips
@@ -68,17 +85,24 @@ class ProFlame2Decoder {
 
   // Feed an edge from the radio: timestamp_us is when the GDO0 transition
   // happened; level_after is the GDO0 level the chip has after the edge.
-  // Internally classifies pulse width and pushes 1, 2, or 3 chips.
+  // Internally appends chip-rate-rounded bits to the buffer; if this edge's
+  // dt closes a burst (>6 ms gap), runs the framer.
   Status ingest_edge(uint32_t timestamp_us, bool level_after);
 
-  // Feed a single chip directly. Useful for tests that bypass timing.
+  // Feed a single chip directly. Each call adds exactly one bit to the
+  // buffer at chip-rate time; the framer is checked on every word-boundary
+  // (every 26 bits added). Used by host tests that want to bypass timing.
   Status ingest_chip(bool chip);
 
   const DecodedPacket &get_packet() const { return last_packet_; }
 
   // Diagnostics — not consumed by callers, just for log/test introspection.
   uint32_t total_edges() const { return total_edges_; }
-  uint32_t framing_resets() const { return framing_resets_; }
+  uint32_t chips_ingested() const { return chips_ingested_; }
+  uint32_t bursts_decoded() const { return bursts_decoded_; }
+  uint32_t bursts_failed() const { return bursts_failed_; }
+  uint32_t packets_emitted() const { return packets_emitted_; }
+  uint32_t buffer_overflows() const { return buffer_overflows_; }
 
   // Helpers exposed for tests + ECC inversion reuse.
   static uint8_t parity_9(uint16_t data_with_pad);
@@ -86,37 +110,37 @@ class ProFlame2Decoder {
   static void invert_checksum(uint8_t cmd, uint8_t chk, uint8_t &c, uint8_t &d);
 
  private:
-  // Word framing state.
-  uint8_t bit_count_in_word_{0};   // 0..kWordDataBits
-  uint16_t current_word_data_{0};  // accumulated 12 bits (excl. S marker)
+  // Chip bit buffer (chip-rate-locked sample stream).
+  uint8_t bit_buffer_[kBitBufferBytes]{};
+  size_t bit_count_{0};
+  // Lower bound for scan offsets — advanced past each matched packet so
+  // ingest_chip's word-boundary re-scans don't re-emit the same packet.
+  // Reset to 0 on every clear_buffer_() (burst end / overflow).
+  size_t scan_start_offset_{0};
 
-  // Packet state.
-  uint8_t word_count_{0};          // number of validated words committed
-  uint8_t word_data_[kWordCount]{};
-  bool word_pad_[kWordCount]{};
-
-  // Manchester pair tracking.
-  bool aligned_{false};
-  bool half_chip_pending_{false};
-  bool pending_chip_{false};       // the lone chip not yet paired
-
-  // Edge-to-chip state.
+  // Edge-to-chip-count state.
   bool have_last_edge_{false};
   uint32_t last_edge_us_{0};
   bool level_at_last_edge_{false};
-  uint32_t last_word_committed_us_{0};
 
   // Decoded result.
   DecodedPacket last_packet_{};
 
   // Diagnostics.
   uint32_t total_edges_{0};
-  uint32_t framing_resets_{0};
+  uint32_t chips_ingested_{0};
+  uint32_t bursts_decoded_{0};   // burst with at least one valid packet
+  uint32_t bursts_failed_{0};    // burst that didn't yield a packet
+  uint32_t packets_emitted_{0};
+  uint32_t buffer_overflows_{0};
 
-  // Internal helpers (in proflame2_decode.cpp).
-  void framing_reset_();
-  Status validate_and_commit_word_();
-  Status finalize_packet_();
+  // Internal helpers.
+  void clear_buffer_();
+  bool get_bit_(size_t index) const;
+  void set_bit_(size_t index, bool value);
+  void append_chips_(bool level, uint32_t count);
+  bool try_decode_packet_at_(size_t start);
+  Status scan_framer_();
 };
 
 }  // namespace proflame2

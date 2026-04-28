@@ -338,7 +338,7 @@ class ProFlame2Component : public Component,
 
   // RX state — populated by start_rx_capture(); consumed by service_rx_().
   // The ring is a single-producer (ISR) / single-consumer (loop task) queue.
-  static constexpr size_t kRxRingSize = 256;
+  static constexpr size_t kRxRingSize = 1024;
   ProFlame2RxPulse rx_ring_[kRxRingSize]{};
   volatile size_t rx_ring_head_{0};
   volatile size_t rx_ring_tail_{0};

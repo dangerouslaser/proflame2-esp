@@ -44,18 +44,39 @@ static const uint8_t CC1101_CONFIG_TX[][2] = {
     {CC1101_TEST1, 0x35},     {CC1101_TEST0, 0x09},
 };
 
-// CC1101 Configuration for 314.973 MHz OOK at 2400 baud — RX path.
-// Three deltas from TX: IOCFG0=0x0D (serial async data on GDO0), PKTCTRL0=0x30
-// (async serial mode, no whitening, no CRC, infinite length), MCSM1=0x30
-// (return to RX after RX, CCA disabled). AGC tuning may be revisited in C5
-// once we have signal-quality measurements from the OEM remote.
+// CC1101 Configuration for 314.973 MHz OOK — RX path.
+//
+// Architecture: this is the rtl_433_ESP "raw OOK envelope detector" config.
+// We deliberately set DATARATE far above the actual chip rate (17.24 kbaud
+// instead of 2400) and widen RX bandwidth to 270 kHz so the CC1101 stops
+// trying to do chip-rate clock recovery and just hands us the raw OOK
+// envelope on GDO0. The ESP32 ISR then measures pulse widths in software
+// against the real 416 µs chip time. This is robust to WiFi-induced jitter;
+// the alternative — DATARATE=2400 with the chip's internal clock recovery —
+// failed to converge in practice because clock-recovery sync drifted.
+//
+// Reference: github.com/NorthernMan54/rtl_433_ESP — same registers, same
+// trick. Deltas vs TX config:
+//   IOCFG0=0x0D   serial async data on GDO0
+//   PKTCTRL0=0x30 async serial, no whitening, no CRC, infinite length
+//   MCSM1=0x30    return to RX after RX, CCA disabled
+//   MDMCFG4=0x69  CHANBW=270 kHz (CHANBW_E=1, CHANBW_M=2), DRATE_E=9
+//   MDMCFG3=0x5C  DRATE_M=92 → bitrate ~17.24 kbaud
+//   MDMCFG2=0x30  OOK, no sync search
+//   FOCCFG=0x16   frequency offset compensation off (OOK doesn't use it)
+//   AGCCTRL2=0xC7 max LNA gain, MAX_DVGA_GAIN=11, MAGN_TARGET=42 dB
+//   AGCCTRL1=0x00 carrier-sense thresholds disabled
+//   AGCCTRL0=0x91 16-sample magnitude averaging
 static const uint8_t CC1101_CONFIG_RX[][2] = {
     {CC1101_IOCFG0, 0x0D},   {CC1101_FIFOTHR, 0x47}, {CC1101_PKTLEN, 125},
     {CC1101_PKTCTRL1, 0x00}, {CC1101_PKTCTRL0, 0x30}, {CC1101_FSCTRL1, 0x06},
     {CC1101_FREQ2, 0x0C},    {CC1101_FREQ1, 0x1D},   {CC1101_FREQ0, 0x89},
-    {CC1101_MDMCFG4, 0xF6},   {CC1101_MDMCFG3, 0x83}, {CC1101_MDMCFG2, 0x30},
+    {CC1101_MDMCFG4, 0x69},   {CC1101_MDMCFG3, 0x5C}, {CC1101_MDMCFG2, 0x30},
     {CC1101_MDMCFG1, 0x00},  {CC1101_MDMCFG0, 0xF8}, {CC1101_DEVIATN, 0x00},
-    {CC1101_MCSM1, 0x30},     {CC1101_MCSM0, 0x04},   {CC1101_FREND1, 0x56},
+    {CC1101_MCSM1, 0x30},     {CC1101_MCSM0, 0x04},
+    {CC1101_FOCCFG, 0x16},
+    {CC1101_AGCCTRL2, 0xC7}, {CC1101_AGCCTRL1, 0x00}, {CC1101_AGCCTRL0, 0x91},
+    {CC1101_FREND1, 0x56},
     {CC1101_FREND0, 0x11},    {CC1101_FSCAL3, 0xEA},  {CC1101_FSCAL2, 0x2A},
     {CC1101_FSCAL1, 0x00},    {CC1101_FSCAL0, 0x11},  {CC1101_TEST2, 0x81},
     {CC1101_TEST1, 0x35},     {CC1101_TEST0, 0x09},
@@ -547,6 +568,13 @@ void ProFlame2Component::start_tx_(const uint8_t *data, size_t len) {
     return;
   }
   ESP_LOGD(TAG, "TX start request: len=%u", static_cast<unsigned>(len));
+
+  // Ensure the TX register table is loaded. After learn-mode the chip is
+  // left in the RX register set (async serial, 17.24 kbaud, IOCFG0 wired
+  // to GDO0 data) — none of which work for our FIFO-based 2400-baud TX
+  // path. set_radio_mode_ short-circuits when already in TX mode, so this
+  // is free on the normal post-boot path.
+  this->set_radio_mode_(RadioMode::kTx);
 
   // (If called from repeat loop, tx_buf_ is already populated; but safe to
   // copy)

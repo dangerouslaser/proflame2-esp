@@ -65,6 +65,28 @@ void ProFlame2Component::start_rx_capture() {
 
   this->rx_active_ = true;
   this->send_strobe(CC1101_SRX);
+
+  // Give the chip a beat to enter RX, then dump key registers + RSSI so we
+  // can confirm what's actually loaded vs what we wrote, and whether it's
+  // hearing anything on the antenna.
+#ifdef USE_ESP_IDF
+  vTaskDelay(pdMS_TO_TICKS(2));
+#else
+  delay(2);
+#endif
+  const uint8_t marcstate = this->read_status_register(0x35) & 0x1F;
+  const uint8_t rssi_raw = this->read_status_register(0x34);
+  const int rssi_dbm = (rssi_raw >= 128 ? (rssi_raw - 256) : rssi_raw) / 2 - 74;
+  ESP_LOGI(TAG_RX,
+           "MARCSTATE=0x%02X RSSI=%d dBm  IOCFG0=0x%02X PKTCTRL0=0x%02X "
+           "MDMCFG2=0x%02X AGCCTRL2=0x%02X AGCCTRL1=0x%02X AGCCTRL0=0x%02X",
+           marcstate, rssi_dbm, this->read_register(CC1101_IOCFG0),
+           this->read_register(CC1101_PKTCTRL0),
+           this->read_register(CC1101_MDMCFG2),
+           this->read_register(CC1101_AGCCTRL2),
+           this->read_register(CC1101_AGCCTRL1),
+           this->read_register(CC1101_AGCCTRL0));
+
   ESP_LOGI(TAG_RX, "RX capture started");
 }
 
@@ -87,10 +109,22 @@ void ProFlame2Component::stop_rx_capture() {
 }
 
 void ProFlame2Component::service_rx_() {
+  // Per-call stats so we can periodically summarize signal quality without
+  // flooding the API log with per-edge messages.
+  static uint32_t window_start_ms = 0;
+  static uint32_t edges_in_window = 0;
+  static uint32_t bucket_short = 0;   // 100..300 µs — single Manchester half-bit
+  static uint32_t bucket_long = 0;    // 300..600 µs — double half-bit
+  static uint32_t bucket_other = 0;   // anything else (mostly noise / silence)
+  // Decoder counter snapshots — diff against current to show per-window deltas.
+  static uint32_t last_chips_ = 0;
+  static uint32_t last_pkts_ = 0;
+  static uint32_t last_bursts_ok_ = 0;
+  static uint32_t last_bursts_fail_ = 0;
+  static uint32_t last_overflows_ = 0;
+
   // Drain the ring. When a learn flow is in progress, feed every edge into
   // the decoder; on a successful packet, hand it to the learn state machine.
-  // Outside learn-mode (e.g. a hypothetical future debug-only RX) the per-
-  // edge VERBOSE log still surfaces signal-quality info.
   while (this->rx_ring_tail_ != this->rx_ring_head_) {
     const auto &p = this->rx_ring_[this->rx_ring_tail_];
     const uint32_t dt = p.timestamp_us - this->rx_last_pulse_us_;
@@ -104,15 +138,58 @@ void ProFlame2Component::service_rx_() {
       }
     }
 
-    ESP_LOGV(TAG_RX, "edge: dt=%u us level=%d", static_cast<unsigned>(dt),
-             p.level ? 1 : 0);
+    edges_in_window++;
+    if (dt >= 100 && dt <= 300) {
+      bucket_short++;
+    } else if (dt > 300 && dt <= 600) {
+      bucket_long++;
+    } else {
+      bucket_other++;
+    }
+
     this->rx_ring_tail_ = (this->rx_ring_tail_ + 1) % kRxRingSize;
+  }
+
+  // Periodic stats. Healthy ProFlame demodulation looks like a burst with
+  // many short+long buckets clustered around 200/400 µs. Lots of "other"
+  // (>600 µs gaps) with a sprinkle of short/long is noise — AGC chatter
+  // without real signal.
+  const uint32_t now = millis();
+  if (window_start_ms == 0) {
+    window_start_ms = now;
+  }
+  if (now - window_start_ms >= 500) {
+    if (edges_in_window > 0 && this->learn_state_ != LearnState::kIdle) {
+      const uint32_t chips = this->learn_decoder_.chips_ingested();
+      const uint32_t pkts = this->learn_decoder_.packets_emitted();
+      const uint32_t bursts_ok = this->learn_decoder_.bursts_decoded();
+      const uint32_t bursts_fail = this->learn_decoder_.bursts_failed();
+      const uint32_t overflows = this->learn_decoder_.buffer_overflows();
+      ESP_LOGI(TAG_RX, "RX 500ms: edges=%u short=%u long=%u other=%u",
+               static_cast<unsigned>(edges_in_window),
+               static_cast<unsigned>(bucket_short),
+               static_cast<unsigned>(bucket_long),
+               static_cast<unsigned>(bucket_other));
+      ESP_LOGI(TAG_RX,
+               "  decode: chips=%u pkts=%u bursts_ok=%u bursts_fail=%u overflows=%u",
+               static_cast<unsigned>(chips - last_chips_),
+               static_cast<unsigned>(pkts - last_pkts_),
+               static_cast<unsigned>(bursts_ok - last_bursts_ok_),
+               static_cast<unsigned>(bursts_fail - last_bursts_fail_),
+               static_cast<unsigned>(overflows - last_overflows_));
+      last_chips_ = chips;
+      last_pkts_ = pkts;
+      last_bursts_ok_ = bursts_ok;
+      last_bursts_fail_ = bursts_fail;
+      last_overflows_ = overflows;
+    }
+    window_start_ms = now;
+    edges_in_window = bucket_short = bucket_long = bucket_other = 0;
   }
 
   // Rate-limited overflow warning — don't spam if RX is mis-tuned.
   if (this->rx_overflow_count_ > 0) {
     static uint32_t last_warn_ms = 0;
-    const uint32_t now = millis();
     if (now - last_warn_ms > 1000) {
       ESP_LOGW(TAG_RX, "RX ring overflow: %u dropped pulses",
                static_cast<unsigned>(this->rx_overflow_count_));
