@@ -75,8 +75,16 @@ ProFlame2UI = proflame2_ns.class_("ProFlame2UI", cg.Component)
 ProFlame2SendButton = proflame2_ns.class_(
     "ProFlame2SendButton", button.Button, cg.Component
 )
+ProFlame2PairButton = proflame2_ns.class_(
+    "ProFlame2PairButton", button.Button, cg.Component
+)
 
 CONF_GDO0_PIN = "gdo0_pin"
+# T-Embed CC1101 board-quirk pins. Optional everywhere; ignored on plain
+# ESP32 + breakout hardware. See proflame2_cc1101.h for semantics.
+CONF_PWR_EN_PIN = "pwr_en_pin"
+CONF_ANT_SW0_PIN = "ant_sw0_pin"
+CONF_ANT_SW1_PIN = "ant_sw1_pin"
 CONF_SERIAL_NUMBER = "serial_number"
 CONF_POWER = "power"
 CONF_PILOT = "pilot"
@@ -86,6 +94,7 @@ CONF_FLAME = "flame"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
 CONF_SEND = "send"
+CONF_PAIR = "pair"
 CONF_CLIMATE = "climate"
 CONF_HYSTERESIS = "hysteresis"
 CONF_HEAT_FLAME_LEVEL = "heat_flame_level"
@@ -101,7 +110,9 @@ CONF_UI = "ui"
 CONF_DISPLAY = "display"
 CONF_ENCODER = "encoder"
 CONF_ENCODER_BUTTON = "encoder_button"
+CONF_PAIR_BUTTON = "pair_button"
 CONF_STATUS_SENSOR = "status_sensor"
+CONF_BATTERY_SENSOR = "battery_sensor"
 CONF_FONTS = "fonts"
 CONF_FONT_SMALL = "small"
 CONF_FONT_MEDIUM = "medium"
@@ -160,7 +171,9 @@ UI_SCHEMA = cv.Schema(
         cv.Required(CONF_DISPLAY): cv.use_id(display.Display),
         cv.Required(CONF_ENCODER): cv.use_id(sensor.Sensor),
         cv.Required(CONF_ENCODER_BUTTON): cv.use_id(binary_sensor.BinarySensor),
+        cv.Optional(CONF_PAIR_BUTTON): cv.use_id(binary_sensor.BinarySensor),
         cv.Optional(CONF_STATUS_SENSOR): cv.use_id(binary_sensor.BinarySensor),
+        cv.Optional(CONF_BATTERY_SENSOR): cv.use_id(sensor.Sensor),
         cv.Required(CONF_FONTS): UI_FONTS_SCHEMA,
     }
 )
@@ -170,6 +183,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.GenerateID(): cv.declare_id(ProFlame2Component),
         cv.Required(CONF_CS_PIN): pins.gpio_output_pin_schema,
         cv.Optional(CONF_GDO0_PIN): pins.gpio_input_pin_schema,
+        cv.Optional(CONF_PWR_EN_PIN): pins.gpio_output_pin_schema,
+        cv.Optional(CONF_ANT_SW0_PIN): pins.gpio_output_pin_schema,
+        cv.Optional(CONF_ANT_SW1_PIN): pins.gpio_output_pin_schema,
         cv.Optional(CONF_SERIAL_NUMBER, default=0x12345678): cv.hex_uint32_t,
         cv.Optional(CONF_ECC_CONSTANTS, default=ECC_DEFAULTS): ECC_SCHEMA,
         cv.Optional(CONF_POWER): switch.switch_schema(ProFlame2PowerSwitch),
@@ -182,6 +198,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
         cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
         cv.Optional(CONF_SEND): button.button_schema(ProFlame2SendButton),
+        cv.Optional(CONF_PAIR): button.button_schema(ProFlame2PairButton),
         cv.Optional(CONF_HEAT_FLAME_LEVEL): number.number_schema(ProFlame2ConfigNumber),
         cv.Optional(CONF_HEAT_FAN_LEVEL): number.number_schema(ProFlame2ConfigNumber),
         cv.Optional(CONF_HEAT_SECONDARY_FLAME): switch.switch_schema(
@@ -216,6 +233,19 @@ async def to_code(config):
     if CONF_GDO0_PIN in config:
         pin = await cg.gpio_pin_expression(config[CONF_GDO0_PIN])
         cg.add(var.set_gdo0_pin(pin))
+
+    # T-Embed CC1101 board-quirk pins. Driven before SPI starts so the radio
+    # rail is powered and the antenna switch is routed for 315 MHz before the
+    # first register access.
+    if CONF_PWR_EN_PIN in config:
+        pin = await cg.gpio_pin_expression(config[CONF_PWR_EN_PIN])
+        cg.add(var.set_pwr_en_pin(pin))
+    if CONF_ANT_SW0_PIN in config:
+        pin = await cg.gpio_pin_expression(config[CONF_ANT_SW0_PIN])
+        cg.add(var.set_ant_sw0_pin(pin))
+    if CONF_ANT_SW1_PIN in config:
+        pin = await cg.gpio_pin_expression(config[CONF_ANT_SW1_PIN])
+        cg.add(var.set_ant_sw1_pin(pin))
     
     # Configure power switch
     if CONF_POWER in config:
@@ -299,6 +329,13 @@ async def to_code(config):
         await button.register_button(btn, conf)
         cg.add(btn.set_parent(var))
 
+    if CONF_PAIR in config:
+        conf = config[CONF_PAIR]
+        btn = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(btn, conf)
+        await button.register_button(btn, conf)
+        cg.add(btn.set_parent(var))
+
     # Heat-mode config entities (consumed by the climate). Registered before
     # the climate so we can hand the references in at climate construction.
     heat_flame_num = None
@@ -365,9 +402,15 @@ async def to_code(config):
         cg.add(ui.set_encoder(enc))
         btn = await cg.get_variable(conf[CONF_ENCODER_BUTTON])
         cg.add(ui.set_encoder_button(btn))
+        if CONF_PAIR_BUTTON in conf:
+            pair_btn = await cg.get_variable(conf[CONF_PAIR_BUTTON])
+            cg.add(ui.set_pair_button(pair_btn))
         if CONF_STATUS_SENSOR in conf:
             status = await cg.get_variable(conf[CONF_STATUS_SENSOR])
             cg.add(ui.set_status_sensor(status))
+        if CONF_BATTERY_SENSOR in conf:
+            battery = await cg.get_variable(conf[CONF_BATTERY_SENSOR])
+            cg.add(ui.set_battery_sensor(battery))
         fonts = conf[CONF_FONTS]
         font_small = await cg.get_variable(fonts[CONF_FONT_SMALL])
         font_medium = await cg.get_variable(fonts[CONF_FONT_MEDIUM])

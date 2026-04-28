@@ -64,6 +64,36 @@ static const uint8_t CC1101_CONFIG_RX[][2] = {
 void ProFlame2Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up ProFlame 2 CC1101...");
 
+  // T-Embed CC1101 board quirk: GPIO 15 gates the CC1101 supply and GPIOs 47/48
+  // route the RF antenna switch. These must be driven BEFORE any SPI traffic;
+  // otherwise the chip is unpowered and every register reads 0x00. The official
+  // LilyGo example (examples/cc1101_send/cc1101_send.ino) does the same.
+  if (this->pwr_en_pin_ != nullptr) {
+    this->pwr_en_pin_->setup();
+    this->pwr_en_pin_->pin_mode(gpio::FLAG_OUTPUT);
+    this->pwr_en_pin_->digital_write(true);
+    ESP_LOGCONFIG(TAG, "  PWR_EN driven HIGH (CC1101 supply)");
+  }
+  if (this->ant_sw1_pin_ != nullptr) {
+    this->ant_sw1_pin_->setup();
+    this->ant_sw1_pin_->pin_mode(gpio::FLAG_OUTPUT);
+    this->ant_sw1_pin_->digital_write(true);   // 315 MHz: SW1=1
+  }
+  if (this->ant_sw0_pin_ != nullptr) {
+    this->ant_sw0_pin_->setup();
+    this->ant_sw0_pin_->pin_mode(gpio::FLAG_OUTPUT);
+    this->ant_sw0_pin_->digital_write(false);  // 315 MHz: SW0=0
+  }
+  if (this->pwr_en_pin_ != nullptr || this->ant_sw0_pin_ != nullptr ||
+      this->ant_sw1_pin_ != nullptr) {
+    // Let the rail and the RF switch settle before SPI starts pinging the chip.
+#ifdef USE_ESP_IDF
+    vTaskDelay(pdMS_TO_TICKS(10));
+#else
+    delay(10);
+#endif
+  }
+
   this->spi_setup();
   this->spi_ready_ = true;
 
@@ -666,13 +696,26 @@ void ProFlame2Component::set_power(bool state) {
     }
     ESP_LOGI(TAG, "Power set to %s", state ? "ON" : "OFF");
 
-    // Hardware reality: the fireplace light only works while the burner is
-    // running. Mirror that to HA/HomeKit by forcing the light off whenever
-    // we power down.
     if (!state) {
+      // Hardware reality: light + secondary flame don't function without the
+      // burner running. Mirror that to HA/HomeKit by force-clearing both
+      // whenever we power down.
       this->current_state_.light_level = 0;
       if (this->light_state_ != nullptr) {
         this->light_state_->turn_off().set_transition_length(0).perform();
+      }
+      this->current_state_.secondary_flame = false;
+      if (this->secondary_flame_switch_) {
+        this->secondary_flame_switch_->publish_state(false);
+      }
+    } else {
+      // Power on: default secondary flame to ON. Callers that need a
+      // different default (e.g. the climate honoring its heat_secondary_flame
+      // config) override this by calling set_secondary_flame() AFTER
+      // set_power(true).
+      this->current_state_.secondary_flame = true;
+      if (this->secondary_flame_switch_) {
+        this->secondary_flame_switch_->publish_state(true);
       }
     }
   }
@@ -721,6 +764,16 @@ void ProFlame2Component::set_light_level(uint8_t level) {
   if (level > 6) {
     level = 6;
   }
+  // Hardware constraint: the fireplace light only operates while the burner
+  // is running. Reject any non-zero level when power is off, and snap the
+  // light entity back to off so HA/HomeKit doesn't show a sticky-on state.
+  if (level > 0 && !this->current_state_.power) {
+    ESP_LOGW(TAG, "Cannot set light level while power is off");
+    if (this->light_state_ != nullptr && this->light_state_->remote_values.is_on()) {
+      this->light_state_->turn_off().set_transition_length(0).perform();
+    }
+    return;
+  }
   if (this->current_state_.light_level != level) {
     this->current_state_.light_level = level;
     this->buffer_dirty_ = true;
@@ -742,10 +795,11 @@ void ProFlame2Component::set_light_level(uint8_t level) {
 // Maps 0–1 brightness → 0–6 level. Hardware constraint: rejects control when
 // the fireplace burner is off (the light literally can't be on without it).
 void ProFlame2Light::write_state(light::LightState *state) {
-  bool is_on;
-  state->current_values_as_binary(&is_on);
-  float bright = 0.0f;
-  state->current_values_as_brightness(&bright);
+  // Use the pre-gamma user-intended brightness, NOT current_values_as_brightness
+  // (which applies the gamma curve and would compress level=2..6 down to ~1
+  // through this round-trip: set_light_level → make_call → write_state).
+  const bool is_on = state->remote_values.is_on();
+  const float bright = state->remote_values.get_brightness();
 
   if (this->parent_ == nullptr) {
     return;
@@ -789,6 +843,17 @@ void ProFlame2Component::set_aux_power(bool state) {
 }
 
 void ProFlame2Component::set_secondary_flame(bool state) {
+  // Secondary flame can only be ON while the burner is running. Reject any
+  // attempt to enable it with power off, and snap the HA toggle back so the
+  // dashboard doesn't show a sticky-ON state.
+  if (state && !this->current_state_.power) {
+    ESP_LOGW(TAG, "Cannot enable secondary flame while power is off");
+    if (this->secondary_flame_switch_ &&
+        this->secondary_flame_switch_->state) {
+      this->secondary_flame_switch_->publish_state(false);
+    }
+    return;
+  }
   if (this->current_state_.secondary_flame != state) {
     this->current_state_.secondary_flame = state;
     this->buffer_dirty_ = true;

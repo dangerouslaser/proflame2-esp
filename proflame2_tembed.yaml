@@ -57,6 +57,15 @@ spi:
   mosi_pin: GPIO9
   miso_pin: GPIO10
 
+# I2C bus — shared between the BQ27220 fuel gauge (0x55), the BQ25896
+# charger (0x6B), and the PN532 NFC controller (0x24). We only talk to the
+# fuel gauge for now.
+i2c:
+  sda: GPIO8
+  scl: GPIO18
+  frequency: 100kHz
+  scan: false
+
 # Backlight as a simple binary output. C4 keeps it always-on; later commits
 # add a dim/sleep timeout via on_idle/on_interaction triggers.
 output:
@@ -115,6 +124,15 @@ proflame2:
   id: fireplace
   cs_pin: GPIO12
   gdo0_pin: GPIO3
+  # T-Embed CC1101 board quirks (verified against the official LilyGo example
+  # in examples/cc1101_send/cc1101_send.ino). Without these driven before SPI
+  # starts, the CC1101 has no Vcc and every register reads 0x00.
+  #   GPIO15 — peripheral power-enable (driven HIGH)
+  #   GPIO47 — antenna switch SW1     (HIGH for 315 MHz routing)
+  #   GPIO48 — antenna switch SW0     (LOW  for 315 MHz routing)
+  pwr_en_pin: GPIO15
+  ant_sw0_pin: GPIO48
+  ant_sw1_pin: GPIO47
   # Pre-pairing seed values — ignored at runtime once the on-device learn-mode
   # (commit 7) writes a learned blob to NVS. For a fresh device, leave these
   # at any safe default and pair via the encoder UI on first boot.
@@ -160,6 +178,13 @@ proflame2:
     name: "Send Commands"
     icon: "mdi:send"
 
+  # HA-side trigger to start learn-mode pairing. Confirmation still requires
+  # an on-device encoder long-press once the captured values converge —
+  # intentional safety gate, since this commits values for a gas appliance.
+  pair:
+    name: "Pair Remote"
+    icon: "mdi:remote"
+
   heat_flame_level:
     name: "Heat Flame Level"
     icon: "mdi:fire"
@@ -192,20 +217,35 @@ proflame2:
     display: lcd
     encoder: enc
     encoder_button: enc_btn
+    # Long-press of the dedicated user button (T-Embed GPIO 6) starts learn
+    # mode. Encoder long-press still works as a backup.
+    pair_button: pair_btn
     status_sensor: ha_status
+    battery_sensor: battery_pct
     fonts:
       small: font_sm
       medium: font_md
       large: font_lg
 
 sensor:
-  # Rotary encoder: A=4, B=5. Resolution=1 → one detent = one state change,
-  # which the UI controller translates into a single field adjustment.
+  # Battery state-of-charge from the BQ27220 fuel gauge (T-Embed CC1101).
+  # Polled every 30 s; the UI status bar reads this sensor's last published
+  # value to render "BAT NN%".
+  - platform: proflame2
+    id: battery_pct
+    name: "Battery"
+    update_interval: 30s
+
+  # Rotary encoder: A=4, B=5. The T-Embed CC1101 ships with a TWO03-latch
+  # encoder (2 detents per A/B cycle), matching what LilyGo's factory
+  # firmware configures via `RotaryEncoder::LatchMode::TWO03`. Resolution=2
+  # makes one detent = one step. Resolution=1 produced inconsistent (0–2)
+  # steps per click because half-cycles rounded unevenly.
   - platform: rotary_encoder
     id: enc
     pin_a: GPIO4
     pin_b: GPIO5
-    resolution: 1
+    resolution: 2
   - platform: homeassistant
     id: room_temp
     entity_id: sensor.fireplace_room_temperature
@@ -244,6 +284,19 @@ binary_sensor:
       mode:
         input: true
       inverted: true
+    internal: true
+
+  # Dedicated user button (BOARD_USER_KEY = GPIO 6 on T-Embed CC1101). Long
+  # press triggers on-device pairing flow. Hardware pull-up; pressing pulls
+  # the line LOW so we invert.
+  - platform: gpio
+    id: pair_btn
+    pin:
+      number: GPIO6
+      mode:
+        input: true
+      inverted: true
+    name: "Pair Button"
     internal: true
 
 button:

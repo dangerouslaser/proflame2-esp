@@ -143,6 +143,17 @@ class ProFlame2Component : public Component,
   // Configuration methods
   void set_serial_number(uint32_t serial) { this->serial_number_ = serial; }
   void set_gdo0_pin(GPIOPin *pin) { this->gdo0_pin_ = pin; }
+
+  // Board-quirk pins for the LilyGo T-Embed CC1101. Optional — generic ESP32 +
+  // breakout boards leave these unset and the component skips them.
+  //   pwr_en_pin  : GPIO15 on T-Embed. Drive HIGH to power the CC1101 rail.
+  //                 Without this, all SPI register reads return 0x00.
+  //   ant_sw0_pin : GPIO48 on T-Embed. RF antenna switch control 0.
+  //   ant_sw1_pin : GPIO47 on T-Embed. RF antenna switch control 1.
+  // For the 314.973 MHz ProFlame band: SW1=HIGH, SW0=LOW (315 MHz routing).
+  void set_pwr_en_pin(GPIOPin *pin) { this->pwr_en_pin_ = pin; }
+  void set_ant_sw0_pin(GPIOPin *pin) { this->ant_sw0_pin_ = pin; }
+  void set_ant_sw1_pin(GPIOPin *pin) { this->ant_sw1_pin_ = pin; }
   // ECC pairing constants. (c1, d1) are used to compute err1 from cmd1,
   // (c2, d2) are used to compute err2 from cmd2. These are remote-specific —
   // a different fireplace pairing will require different values. See README.
@@ -232,6 +243,17 @@ class ProFlame2Component : public Component,
   // indicator.
   static constexpr uint8_t kLearnMinPackets = 3;
 
+  // Where the active serial + ECC came from. UI uses this on the info screen.
+  enum class ConfigSource : uint8_t { kYaml, kNvsLearned };
+  ConfigSource get_config_source() const { return this->config_source_; }
+  uint32_t get_serial_number() const { return this->serial_number_; }
+  void get_ecc(uint8_t &c1, uint8_t &d1, uint8_t &c2, uint8_t &d2) const {
+    c1 = this->ecc_c1_;
+    d1 = this->ecc_d1_;
+    c2 = this->ecc_c2_;
+    d2 = this->ecc_d2_;
+  }
+
   // DEBUG FUNCTIONS
   void debug_minimal_tx();
   void debug_check_config();
@@ -286,6 +308,11 @@ class ProFlame2Component : public Component,
 
   // Hardware pins
   GPIOPin *gdo0_pin_{nullptr};
+  // T-Embed CC1101 board-quirk pins. nullptr on generic ESP32 + breakout
+  // hardware where the CC1101 has direct power and a fixed antenna.
+  GPIOPin *pwr_en_pin_{nullptr};
+  GPIOPin *ant_sw0_pin_{nullptr};
+  GPIOPin *ant_sw1_pin_{nullptr};
 
   // Configuration
   uint32_t serial_number_{0x12345678};
@@ -298,8 +325,9 @@ class ProFlame2Component : public Component,
   uint8_t ecc_d2_{0x07};
 
   // Resolved at setup() — distinguishes YAML-seeded values from values learned
-  // on-device via the pairing flow and persisted to NVS.
-  enum class ConfigSource : uint8_t { kYaml, kNvsLearned };
+  // on-device via the pairing flow and persisted to NVS. Enum is declared in
+  // the public section above so other components (e.g. ProFlame2UI) can read
+  // it via get_config_source().
   ConfigSource config_source_{ConfigSource::kYaml};
   ESPPreferenceObject pref_learned_;
 
@@ -487,6 +515,20 @@ class ProFlame2SendButton : public button::Button, public Component {
 
  protected:
   void press_action() override { this->parent_->queue_send(); }
+
+  ProFlame2Component *parent_{nullptr};
+};
+
+// HA-side trigger to start the learn-mode pairing flow without needing to
+// physically press the on-device pair button. Confirming the captured
+// constants still requires an on-device long-press — intentional, since this
+// controls a gas appliance.
+class ProFlame2PairButton : public button::Button, public Component {
+ public:
+  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
+
+ protected:
+  void press_action() override { this->parent_->learn_start(); }
 
   ProFlame2Component *parent_{nullptr};
 };

@@ -195,10 +195,13 @@ void ProFlame2Climate::run_hysteresis_() {
 
   if (!power_on && current < (target - this->hysteresis_)) {
     // Apply user-configured heat behavior in a single packet alongside power-on.
+    // Order matters: set_power(true) auto-defaults secondary flame to ON, so
+    // call it BEFORE set_secondary_flame() with the user's heat-config value
+    // so the user's choice (which may be OFF) wins over the auto-default.
     this->parent_->set_flame_level(this->get_heat_flame_level_());
     this->parent_->set_fan_level(this->get_heat_fan_level_());
-    this->parent_->set_secondary_flame(this->get_heat_secondary_flame_());
     this->parent_->set_power(true);
+    this->parent_->set_secondary_flame(this->get_heat_secondary_flame_());
     this->parent_->queue_send();
     if (this->action != climate::CLIMATE_ACTION_HEATING) {
       this->action = climate::CLIMATE_ACTION_HEATING;
