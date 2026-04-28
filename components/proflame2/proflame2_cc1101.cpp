@@ -345,12 +345,18 @@ void ProFlame2Component::set_radio_mode_(RadioMode mode) {
     return;
   }
 
-  // Always idle before reconfiguring — chip rejects register writes to certain
-  // addresses while RX/TX is active.
+  // Always idle and flush both FIFOs before reconfiguring. The chip rejects
+  // register writes to certain addresses while RX/TX is active, and a stale
+  // RX FIFO can otherwise survive an RX→Idle transition (only the non-Idle
+  // branch used to flush, leaving any Idle stop with leftover bytes that
+  // would corrupt a later read).
   this->send_strobe(CC1101_SIDLE);
+  this->send_strobe(CC1101_SFTX);
+  this->send_strobe(CC1101_SFRX);
 
   if (mode == RadioMode::kIdle) {
     this->radio_mode_ = mode;
+    ESP_LOGD(TAG, "CC1101 mode: IDLE");
     return;
   }
 
@@ -368,16 +374,12 @@ void ProFlame2Component::set_radio_mode_(RadioMode mode) {
     this->write_register(table[i][0], table[i][1]);
   }
 
-  // Flush both FIFOs and recalibrate. Caller is responsible for issuing STX
-  // or SRX when ready to actually transmit/receive.
-  this->send_strobe(CC1101_SFTX);
-  this->send_strobe(CC1101_SFRX);
+  // Recalibrate the synthesizer for the new mode. Caller is responsible for
+  // issuing STX or SRX when ready to actually transmit/receive.
   this->send_strobe(CC1101_SCAL);
 
   this->radio_mode_ = mode;
-  ESP_LOGD(TAG, "CC1101 mode: %s",
-           mode == RadioMode::kTx ? "TX"
-                                  : (mode == RadioMode::kRx ? "RX" : "IDLE"));
+  ESP_LOGD(TAG, "CC1101 mode: %s", mode == RadioMode::kTx ? "TX" : "RX");
 }
 
 uint8_t ProFlame2Component::calculate_parity(uint16_t data) {
