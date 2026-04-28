@@ -84,6 +84,11 @@ static const uint8_t CC1101_SFTX         = 0x3A;  // Flush TX FIFO strobe
 static const uint8_t CC1101_SFRX         = 0x3B;  // Flush RX FIFO strobe
 static const uint8_t CC1101_TXFIFO_BURST = 0x7F;  // TX FIFO burst-write SPI address
 
+// Radio mode — selects which CC1101 register subset is applied. The chip
+// itself has more states (FSTXON, CALIBRATE, etc.); we only ever drive it
+// between idle, transmit-ready, and receive-ready.
+enum class RadioMode : uint8_t { kIdle, kTx, kRx };
+
 // ProFlame 2 packet structure
 struct ProFlame2Command {
   bool pilot_cpi;        // 0=IPI, 1=CPI
@@ -198,6 +203,12 @@ class ProFlame2Component : public Component,
   // its serial + ECC values applied (overriding YAML defaults).
   bool load_learned_state_();
 
+  // Switch the CC1101 between idle, TX-ready, and RX-ready register sets.
+  // Idempotent — re-applying the current mode is a no-op. Always strobes SIDLE
+  // first so callers don't need to worry about prior chip state. Does NOT
+  // strobe STX or SRX; callers initiate the actual transmit/receive.
+  void set_radio_mode_(RadioMode mode);
+
   // Non-blocking TX state machine
   void start_tx_(const uint8_t *data, size_t len);
   void service_tx_();
@@ -220,6 +231,11 @@ class ProFlame2Component : public Component,
   enum class ConfigSource : uint8_t { kYaml, kNvsLearned };
   ConfigSource config_source_{ConfigSource::kYaml};
   ESPPreferenceObject pref_learned_;
+
+  // Current CC1101 mode tracking. Initialized to kIdle; configure_cc1101()
+  // sets it to kTx after the boot register write. Future RX driver flips
+  // between kRx and kTx as needed.
+  RadioMode radio_mode_{RadioMode::kIdle};
 
   // Component references
   switch_::Switch *power_switch_{nullptr};
