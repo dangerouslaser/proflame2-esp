@@ -5,3 +5,7 @@ secrets.yaml
 
 # Host-side decoder test build artifacts
 components/proflame2/test/build/
+
+# AI assistant guidance — kept locally, not tracked.
+CLAUDE.md
+.claude/
