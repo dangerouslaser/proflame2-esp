@@ -578,13 +578,55 @@ automations. Test thoroughly before relying on it.
 
 ## Credits
 
-- Original protocol reverse engineering: [johnellinwood/smartfire](https://github.com/johnellinwood/smartfire)
-- ProFlame 2 protocol documentation: FCC ID T99058402300
-- ProFlame 2 decoder + decode-side reference: [merbanan/rtl_433 `proflame2.c`](https://github.com/merbanan/rtl_433/blob/master/src/devices/proflame2.c)
-- CC1101 "raw OOK envelope" RX architecture: [NorthernMan54/rtl_433_ESP](https://github.com/NorthernMan54/rtl_433_ESP)
-- ESPHome CC1101 examples: [LSatan/SmartRC-CC1101-Driver-Lib](https://github.com/LSatan/SmartRC-CC1101-Driver-Lib)
-- Upstream forks: [j2deen/proflame2-esp](https://github.com/j2deen/proflame2-esp)
-  → [marksieczkowski/proflame2-esp](https://github.com/marksieczkowski/proflame2-esp)
+This component stands on a lot of other people's work. In rough order of how
+much code / architecture we pulled from each:
+
+- **[merbanan/rtl_433](https://github.com/merbanan/rtl_433)** — the
+  [`proflame2.c`](https://github.com/merbanan/rtl_433/blob/master/src/devices/proflame2.c)
+  device decoder is the canonical reference for the ProFlame 2 protocol:
+  word layout, Thomas-Manchester encoding, the 4-chip `1110` sync, the
+  ECC inversion math, parity / guard-bit validation. Our
+  `proflame2_decode.{h,cpp}` is a direct port of that logic to host-testable
+  C++, with the same field semantics and the same pulse-demod approach.
+- **[NorthernMan54/rtl_433_ESP](https://github.com/NorthernMan54/rtl_433_ESP)**
+  — the entire RX architecture is modeled on this project. CC1101 register
+  values for raw-OOK envelope mode (DATARATE 17.24 kbaud, 270 kHz RX BW,
+  `AGCCTRL2 = 0xC7`, etc.), the GDO0 ISR + edge-timestamp ring-buffer
+  pattern, and the chip-rate-locked sample-buffer / linear-scan framer all
+  come from here. Without it, our first attempt — a streaming edge-time
+  classifier — couldn't survive WiFi ISR jitter; once we ported this
+  architecture, pairing converged in under two seconds.
+- **[johnellinwood/smartfire](https://github.com/johnellinwood/smartfire)**
+  — original reverse engineering of the ProFlame 2 RF protocol. The serial
+  + ECC pairing model, command-byte layout, and 5-repeat transmit pattern
+  all came out of this work.
+- **FCC ID `T99058402300`** — the OEM remote's filing has the protocol
+  documentation that confirms baud rate, modulation, and frequency.
+- **[j2deen/proflame2-esp](https://github.com/j2deen/proflame2-esp)** and
+  the parent **[marksieczkowski/proflame2-esp](https://github.com/marksieczkowski/proflame2-esp)**
+  — the original ESPHome external-component skeleton, ESP-IDF framework
+  setup, secondary-flame support, and non-blocking TX state machine. This
+  project began as a fork of j2deen's work; it has since been detached
+  from the fork network as it diverged substantially (ESP32-S3 / T-Embed
+  target, RX path, on-device learn-mode, climate, light, state restoration,
+  device UI, LED strip, web UI).
+- **[LSatan/SmartRC-CC1101-Driver-Lib](https://github.com/LSatan/SmartRC-CC1101-Driver-Lib)**
+  — early reference for CC1101 register programming patterns and the
+  PA-table values used at 314.973 MHz.
+- **[Xinyuan-LilyGO/T-Embed-CC1101](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101)**
+  — the official LilyGo hardware reference is where the T-Embed pin map
+  came from: shared SPI bus + per-CS muxing, antenna-switch quirks
+  (GPIO47 SW1 high / GPIO48 SW0 low for 315 MHz routing), and the
+  `GPIO15` peripheral power-enable that has to be HIGH before SPI starts
+  or every CC1101 register reads `0x00`.
+- **[OpenMQTTGateway](https://github.com/1technophile/OpenMQTTGateway)** —
+  an alternate path for capturing the OEM remote's serial + ECC if you
+  don't have an SDR and aren't on the T-Embed. OMG embeds rtl_433_ESP and
+  decodes ProFlame 2 out of the box.
+- **[ESPHome](https://esphome.io/)** — the framework that hosts this
+  whole component. The climate / light / number / switch / button entity
+  surfaces, NVS persistence, OTA, web server, and codegen pipeline are
+  all ESPHome.
 
 ## License
 
