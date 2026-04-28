@@ -2,3 +2,6 @@
 
 # HA Secerts File
 secrets.yaml
+
+# Host-side decoder test build artifacts
+components/proflame2/test/build/
