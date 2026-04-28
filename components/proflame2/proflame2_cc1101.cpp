@@ -117,12 +117,16 @@ void ProFlame2Component::loop() {
   if (this->send_pending_) {
     const uint32_t now = millis();
     if (this->spi_ready_ && this->tx_state_ == TX_IDLE &&
-        this->tx_repeat_left_ == 0 &&
+        this->tx_repeat_left_ == 0 && !this->rx_active_ &&
         (now - this->last_transmission_ >= MIN_TRANSMISSION_INTERVAL)) {
       this->send_pending_ = false;
       this->buffer_dirty_ = false;
       this->transmit_command();
     }
+  }
+
+  if (this->rx_active_) {
+    this->service_rx_();
   }
 
   // NOTE: tx_repeat_left_ is always 0 in normal operation — transmit_command()
@@ -144,6 +148,14 @@ void ProFlame2Component::loop() {
     YIELD();
   } else if (this->tx_repeat_left_ > 0) {
     // Keep the repeat gap short; avoid 10 ms idle delays while waiting
+#ifdef USE_ESP_IDF
+    vTaskDelay(pdMS_TO_TICKS(1));
+#else
+    delay(1);
+#endif
+  } else if (this->rx_active_) {
+    // Drain the RX ring frequently to avoid overflows during a packet burst
+    // (~182 edges per 38 ms repetition).
 #ifdef USE_ESP_IDF
     vTaskDelay(pdMS_TO_TICKS(1));
 #else

@@ -89,6 +89,13 @@ static const uint8_t CC1101_TXFIFO_BURST = 0x7F;  // TX FIFO burst-write SPI add
 // between idle, transmit-ready, and receive-ready.
 enum class RadioMode : uint8_t { kIdle, kTx, kRx };
 
+// Single edge captured by the RX ISR. timestamp_us comes from micros() at the
+// time of the edge; level is the GDO0 logic level *after* the edge.
+struct ProFlame2RxPulse {
+  uint32_t timestamp_us;
+  bool level;
+};
+
 // ProFlame 2 packet structure
 struct ProFlame2Command {
   bool pilot_cpi;        // 0=IPI, 1=CPI
@@ -177,6 +184,14 @@ class ProFlame2Component : public Component,
   // power/mode changes so it can re-publish action.
   void set_climate(ProFlame2Climate *clim) { this->climate_ = clim; }
 
+  // RX capture (async serial mode). The ISR pushes (timestamp_us, level)
+  // pairs into a lock-free ring buffer; service_rx_() drains it in loop().
+  // For C5 the drain just logs at VERBOSE — the actual decoder lands in C6.
+  // Refuses to start while a TX is queued or in flight; idempotent.
+  void start_rx_capture();
+  void stop_rx_capture();
+  bool is_rx_active() const { return this->rx_active_; }
+
   // DEBUG FUNCTIONS
   void debug_minimal_tx();
   void debug_check_config();
@@ -209,6 +224,12 @@ class ProFlame2Component : public Component,
   // strobe STX or SRX; callers initiate the actual transmit/receive.
   void set_radio_mode_(RadioMode mode);
 
+  // RX ISR + service routine (implemented in proflame2_rx.cpp). The ISR is a
+  // free function pointer (signature dictated by attach_interrupt) so it must
+  // be a static method; it gets `this` via the user-data argument.
+  static void IRAM_ATTR rx_isr_(ProFlame2Component *self);
+  void service_rx_();
+
   // Non-blocking TX state machine
   void start_tx_(const uint8_t *data, size_t len);
   void service_tx_();
@@ -236,6 +257,18 @@ class ProFlame2Component : public Component,
   // sets it to kTx after the boot register write. Future RX driver flips
   // between kRx and kTx as needed.
   RadioMode radio_mode_{RadioMode::kIdle};
+
+  // RX state — populated by start_rx_capture(); consumed by service_rx_().
+  // The ring is a single-producer (ISR) / single-consumer (loop task) queue.
+  static constexpr size_t kRxRingSize = 256;
+  ProFlame2RxPulse rx_ring_[kRxRingSize]{};
+  volatile size_t rx_ring_head_{0};
+  volatile size_t rx_ring_tail_{0};
+  volatile uint32_t rx_overflow_count_{0};
+  ISRInternalGPIOPin gdo0_isr_pin_{};
+  bool rx_isr_attached_{false};
+  bool rx_active_{false};
+  uint32_t rx_last_pulse_us_{0};
 
   // Component references
   switch_::Switch *power_switch_{nullptr};
