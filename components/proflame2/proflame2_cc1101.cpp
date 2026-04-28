@@ -15,6 +15,24 @@ namespace proflame2 {
 
 static const char *TAG = "proflame2";
 
+namespace {
+
+// CRC-32/ISO-HDLC (IEEE 802.3, polynomial 0xEDB88320). Bitwise / no table:
+// runs at most twice across the device's lifetime (boot load, learn confirm),
+// so flash-size footprint matters more than throughput.
+uint32_t crc32_iso(const uint8_t *data, size_t len) {
+  uint32_t crc = 0xFFFFFFFFu;
+  for (size_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (int j = 0; j < 8; j++) {
+      crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+    }
+  }
+  return ~crc;
+}
+
+}  // namespace
+
 // CC1101 Configuration for 314.973 MHz OOK at 2400 baud
 static const uint8_t CC1101_CONFIG[][2] = {
     {CC1101_IOCFG0, 0x02},   {CC1101_FIFOTHR, 0x47}, {CC1101_PKTLEN, 125},
@@ -58,6 +76,9 @@ void ProFlame2Component::setup() {
     this->write_byte(pa_table[i]);
   }
   this->disable();
+
+  // NVS-backed learned state (serial + ECC) — overrides YAML when valid.
+  this->load_learned_state_();
 
   // init state
   this->current_state_ = ProFlame2Command{
@@ -124,7 +145,14 @@ void ProFlame2Component::dump_config() {
     ESP_LOGW(TAG, "SPI not ready yet, skipping CC1101 reads");
     return;
   }
-  ESP_LOGCONFIG(TAG, "  Serial Number: 0x%08X", this->serial_number_);
+  const char *source = (this->config_source_ == ConfigSource::kNvsLearned)
+                           ? "NVS v1 (learned)"
+                           : "YAML";
+  ESP_LOGCONFIG(TAG, "  Serial Number: 0x%08X (%s)", this->serial_number_,
+                source);
+  ESP_LOGCONFIG(TAG, "  ECC: c1=0x%X d1=0x%X c2=0x%X d2=0x%X (%s)",
+                this->ecc_c1_, this->ecc_d1_, this->ecc_c2_, this->ecc_d2_,
+                source);
   if (this->gdo0_pin_ != nullptr) {
     LOG_PIN("  GDO0 Pin: ", this->gdo0_pin_);
   }
@@ -738,6 +766,49 @@ void ProFlame2Component::debug_check_config() {
   ESP_LOGI(TAG, "MDMCFG3: 0x%02X (should be 0x83)", mdm3);
   ESP_LOGI(TAG, "FREND0: 0x%02X (should be 0x11)", frend0);
   ESP_LOGI(TAG, "PKTLEN: 0x%02X", pktlen);
+}
+
+bool ProFlame2Component::load_learned_state_() {
+  // Stable string-keyed hash so the NVS blob survives YAML node-id renames.
+  this->pref_learned_ =
+      global_preferences->make_preference<ProFlame2LearnedState>(
+          fnv1_hash("proflame2_learned_v1"));
+
+  ProFlame2LearnedState blob{};
+  if (!this->pref_learned_.load(&blob)) {
+    return false;
+  }
+  if (blob.version != ProFlame2LearnedState::kCurrentVersion) {
+    ESP_LOGD(TAG, "Learned NVS blob version %u != %u; ignoring",
+             blob.version, ProFlame2LearnedState::kCurrentVersion);
+    return false;
+  }
+  if ((blob.flags & ProFlame2LearnedState::kFlagValid) == 0) {
+    return false;
+  }
+  const size_t crc_len = sizeof(ProFlame2LearnedState) - sizeof(uint32_t);
+  const uint32_t expected =
+      crc32_iso(reinterpret_cast<const uint8_t *>(&blob), crc_len);
+  if (expected != blob.crc32) {
+    ESP_LOGW(TAG,
+             "Learned NVS blob CRC mismatch (got 0x%08X, expected 0x%08X); "
+             "ignoring",
+             blob.crc32, expected);
+    return false;
+  }
+
+  this->serial_number_ = blob.serial & 0x00FFFFFFu;
+  this->ecc_c1_ = blob.c1 & 0x0F;
+  this->ecc_d1_ = blob.d1 & 0x0F;
+  this->ecc_c2_ = blob.c2 & 0x0F;
+  this->ecc_d2_ = blob.d2 & 0x0F;
+  this->config_source_ = ConfigSource::kNvsLearned;
+  ESP_LOGI(TAG,
+           "Loaded learned state from NVS: serial=0x%06X c1=0x%X d1=0x%X "
+           "c2=0x%X d2=0x%X",
+           this->serial_number_, this->ecc_c1_, this->ecc_d1_, this->ecc_c2_,
+           this->ecc_d2_);
+  return true;
 }
 
 void ProFlame2ConfigNumber::setup() {

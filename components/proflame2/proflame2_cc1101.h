@@ -97,6 +97,23 @@ struct ProFlame2Command {
   uint8_t flame_level;   // 0-6
 };
 
+// Persistent state written by the on-device learn-mode pairing flow. When a
+// valid blob is present in NVS, its serial + ECC constants override the
+// YAML-seeded defaults at boot. See README "Pairing your remote".
+struct ProFlame2LearnedState {
+  static constexpr uint16_t kCurrentVersion = 1;
+  static constexpr uint16_t kFlagValid = 0x0001;
+
+  uint16_t version;
+  uint16_t flags;
+  uint32_t serial;          // 24-bit serial in low bits
+  uint8_t  c1, d1, c2, d2;  // ECC constants, low 4 bits used
+  uint8_t  reserved[6];     // forward-compat slack
+  uint32_t crc32;           // CRC-32/ISO-HDLC over all preceding bytes
+} __attribute__((packed));
+static_assert(sizeof(ProFlame2LearnedState) == 22,
+              "ProFlame2LearnedState layout must remain 22 bytes for NVS compat");
+
 class ProFlame2Component : public Component,
                            public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST,
                                                  spi::CLOCK_POLARITY_LOW,
@@ -177,6 +194,10 @@ class ProFlame2Component : public Component,
   uint8_t calculate_checksum(uint8_t cmd_byte, uint8_t c_const, uint8_t d_const);
   uint8_t calculate_parity(uint16_t data);
 
+  // NVS-backed learned-state load. Returns true if a valid blob was found and
+  // its serial + ECC values applied (overriding YAML defaults).
+  bool load_learned_state_();
+
   // Non-blocking TX state machine
   void start_tx_(const uint8_t *data, size_t len);
   void service_tx_();
@@ -187,11 +208,18 @@ class ProFlame2Component : public Component,
   // Configuration
   uint32_t serial_number_{0x12345678};
   // ECC pairing constants — defaults match the dangerouslaser pairing (serial
-  // 0x320A02). YAML can override; see README "Pairing your remote".
+  // 0x320A02). YAML can override; on-device learn-mode (when paired) overrides
+  // both via NVS. See README "Pairing your remote".
   uint8_t ecc_c1_{0x08};
   uint8_t ecc_d1_{0x0E};
   uint8_t ecc_c2_{0x0B};
   uint8_t ecc_d2_{0x07};
+
+  // Resolved at setup() — distinguishes YAML-seeded values from values learned
+  // on-device via the pairing flow and persisted to NVS.
+  enum class ConfigSource : uint8_t { kYaml, kNvsLearned };
+  ConfigSource config_source_{ConfigSource::kYaml};
+  ESPPreferenceObject pref_learned_;
 
   // Component references
   switch_::Switch *power_switch_{nullptr};
