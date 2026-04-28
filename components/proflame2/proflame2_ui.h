@@ -6,6 +6,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/font/font.h"
+#include "esphome/components/light/light_state.h"
 
 #include "proflame2_cc1101.h"
 
@@ -31,6 +32,13 @@ class ProFlame2UI : public Component {
   void set_pair_button(binary_sensor::BinarySensor *b) { pair_button_ = b; }
   void set_status_sensor(binary_sensor::BinarySensor *b) { status_sensor_ = b; }
   void set_battery_sensor(sensor::Sensor *s) { battery_sensor_ = s; }
+  // Optional. When set, the UI auto-dims the backlight after kBacklightIdleMs
+  // of no encoder/button activity, and wakes it on any input. Null = always on.
+  void set_backlight(light::LightState *l) { backlight_ = l; }
+  // Optional. When set, the UI exposes Field::kLeds (a settings cog) that
+  // toggles this switch's state. Wire it to the same template switch that
+  // gates the WS2812 strip so HA + device share one source of truth.
+  void set_leds_switch(switch_::Switch *s) { leds_switch_ = s; }
   void set_font_small(font::Font *f) { font_small_ = f; }
   void set_font_medium(font::Font *f) { font_medium_ = f; }
   void set_font_large(font::Font *f) { font_large_ = f; }
@@ -64,6 +72,7 @@ class ProFlame2UI : public Component {
     kLight,
     kSecondary,
     kPower,
+    kLeds,    // Settings: WS2812 status-LED enable/disable. Cog-iconned.
     kInfo,
     kCount,
   };
@@ -72,6 +81,10 @@ class ProFlame2UI : public Component {
   void on_button_press_();
   void on_button_release_();
   void on_pair_button_change_(bool pressed);
+  // Synchronously turn the backlight back on if it's currently off. Called
+  // from input handlers so the screen responds instantly rather than waiting
+  // for the next loop() reconciliation.
+  void wake_backlight_();
   void cycle_selection_();
   void cycle_selection_back_();
   void apply_delta_to_selected_(int direction);
@@ -85,6 +98,10 @@ class ProFlame2UI : public Component {
   int field_value_(Field f) const;
 
   static constexpr uint32_t kLongPressMs = 1500;
+  // Idle time before the backlight goes off. Picked to feel like a phone:
+  // long enough that you can read the screen, short enough that the LCD
+  // isn't burning power on a battery-powered device when nobody's looking.
+  static constexpr uint32_t kBacklightIdleMs = 30000;
 
   ProFlame2Component *parent_{nullptr};
   sensor::Sensor *encoder_{nullptr};
@@ -99,6 +116,13 @@ class ProFlame2UI : public Component {
   // Optional — bound to a battery-percentage sensor (e.g. proflame2_battery
   // talking to the BQ27220 fuel gauge on the T-Embed). Null = "BAT --".
   sensor::Sensor *battery_sensor_{nullptr};
+  // Optional — bound to a binary `light` driving the LCD backlight. Null
+  // means we don't manage backlight (e.g. plain ESP32 builds with no LCD).
+  light::LightState *backlight_{nullptr};
+  // Optional — switch entity exposed to HA *and* read/written from the
+  // device UI's settings cog (Field::kLeds) to enable/disable the WS2812
+  // status LEDs. Single source of truth for both surfaces.
+  switch_::Switch *leds_switch_{nullptr};
 
   font::Font *font_small_{nullptr};
   font::Font *font_medium_{nullptr};

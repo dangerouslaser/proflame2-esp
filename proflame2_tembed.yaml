@@ -89,6 +89,51 @@ light:
     restore_mode: ALWAYS_ON
     internal: true
 
+  # 8x WS2813 (WS2812B-compatible) addressable LED strip on the bottom edge of
+  # the T-Embed CC1101 (data on GPIO14, GBR color order, powered by the same
+  # GPIO15 PWR_EN we already drive HIGH for the CC1101 + antenna switch).
+  # The "Fire" effect runs whenever the fireplace power switch is on; the LEDs
+  # go dark when the fireplace is off — see proflame2.power.on_turn_on/off below.
+  - platform: esp32_rmt_led_strip
+    id: status_leds
+    # The LilyGo example uses FastLED with WS2813 + "GBR" — but that's
+    # FastLED-internal. ESPHome's WS2812 driver expects the chip's native
+    # GRB byte order, which is what these LEDs actually want on the wire.
+    chipset: WS2812
+    rgb_order: GRB
+    pin: GPIO14
+    num_leds: 8
+    default_transition_length: 200ms
+    name: "Status LEDs"
+    icon: "mdi:fire"
+    restore_mode: ALWAYS_OFF
+    effects:
+      # Per-LED warm flicker mixing red, orange, and yellow at ~5:4:3.
+      # 80 ms update interval is fast enough to feel alive but slow enough
+      # to keep RMT load low.
+      - addressable_lambda:
+          name: "Fire"
+          update_interval: 80ms
+          lambda: |-
+            for (int i = 0; i < it.size(); i++) {
+              uint8_t roll = esp_random() & 0xFF;
+              uint8_t r, g;
+              if (roll < 107) {
+                // ~42% deep red
+                r = 200 + (esp_random() & 0x37);
+                g = (esp_random() & 0x1F);
+              } else if (roll < 192) {
+                // ~33% orange
+                r = 220 + (esp_random() & 0x23);
+                g = 80 + (esp_random() & 0x3F);
+              } else {
+                // ~25% yellow
+                r = 240 + (esp_random() & 0x0F);
+                g = 180 + (esp_random() & 0x3F);
+              }
+              it[i] = Color(r, g, 0);
+            }
+
 # Fonts pulled live from Google Fonts at build time; no manual download needed.
 font:
   - file: "gfonts://Roboto"
@@ -153,8 +198,24 @@ proflame2:
     d2: 0x07
 
   power:
+    id: fireplace_power
     name: "Power"
     icon: "mdi:fireplace"
+    # Animate the bottom-edge LED strip with the addressable fire effect
+    # whenever the fireplace is on AND the user hasn't disabled the strip
+    # via the "Status LEDs Enabled" toggle (HA or device UI cog).
+    # on_turn_off always kills the LEDs — no condition.
+    on_turn_on:
+      - if:
+          condition:
+            switch.is_on: leds_enabled
+          then:
+            - light.turn_on:
+                id: status_leds
+                effect: "Fire"
+    on_turn_off:
+      - light.turn_off:
+          id: status_leds
 
   pilot:
     name: "Pilot Mode"
@@ -234,6 +295,12 @@ proflame2:
     pair_button: pair_btn
     status_sensor: ha_status
     battery_sensor: battery_pct
+    # When set, the UI auto-dims the LCD backlight after 30 s of no
+    # encoder/button activity and wakes it on the next interaction.
+    backlight: lcd_backlight
+    # Settings cog on the UI that toggles this switch — same source of
+    # truth as the HA "Status LEDs Enabled" toggle.
+    leds_switch: leds_enabled
     fonts:
       small: font_sm
       medium: font_md
@@ -310,6 +377,35 @@ binary_sensor:
       inverted: true
     name: "Pair Button"
     internal: true
+
+# Top-level switches that aren't part of the proflame2 protocol entities.
+switch:
+  # Master enable/disable for the bottom-edge WS2812 strip's "Fire" effect.
+  # ON: fireplace power-on triggers the addressable_lambda animation.
+  # OFF: animation never starts, and any in-flight animation is killed
+  # (the on_turn_off action below). Surfaces both in HA and on the device
+  # UI's settings cog (Field::kLeds in proflame2_ui.cpp).
+  - platform: template
+    id: leds_enabled
+    name: "Status LEDs Enabled"
+    icon: "mdi:led-strip-variant"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    # When re-enabled, restart the fire effect *if* the fireplace is
+    # currently on — otherwise wait until the next power-on. Disabling
+    # always kills the LEDs immediately.
+    on_turn_on:
+      - if:
+          condition:
+            switch.is_on: fireplace_power
+          then:
+            - light.turn_on:
+                id: status_leds
+                effect: "Fire"
+    on_turn_off:
+      - light.turn_off:
+          id: status_leds
 
 button:
   - platform: restart

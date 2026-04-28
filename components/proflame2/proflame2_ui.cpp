@@ -91,12 +91,38 @@ void ProFlame2UI::setup() {
 }
 
 void ProFlame2UI::loop() {
-  // Reserved for future timeout-driven behavior (backlight dim after 30 s).
-  // Intentionally empty — the new click model is fully event-driven.
+  // Backlight auto-off after kBacklightIdleMs of no input. Anything that
+  // bumps last_interaction_ms_ in the input handlers also calls
+  // wake_backlight_(), so the screen returns immediately on a key press
+  // even if the actual reconciliation here is on the next loop tick.
+  if (this->backlight_ != nullptr) {
+    const uint32_t idle_ms = millis() - this->last_interaction_ms_;
+    const bool should_be_on = idle_ms < kBacklightIdleMs;
+    if (this->backlight_->remote_values.is_on() != should_be_on) {
+      auto call = should_be_on ? this->backlight_->turn_on()
+                               : this->backlight_->turn_off();
+      call.set_transition_length(150);
+      call.perform();
+    }
+  }
+}
+
+void ProFlame2UI::wake_backlight_() {
+  if (this->backlight_ == nullptr) {
+    return;
+  }
+  if (!this->backlight_->remote_values.is_on()) {
+    auto call = this->backlight_->turn_on();
+    call.set_transition_length(80);
+    call.perform();
+  }
 }
 
 void ProFlame2UI::on_encoder_delta_(int direction) {
   this->last_interaction_ms_ = millis();
+  // First rotation of a wake-up acts like a normal turn (we don't swallow
+  // it). Users can read the screen while it brightens — feels responsive.
+  this->wake_backlight_();
   // Encoder rotation has no role in learn-mode (start/confirm/cancel are all
   // button-driven). Drop deltas while a learn flow is active so accidental
   // bumps don't mutate the underlying control state mid-pairing.
@@ -128,6 +154,7 @@ void ProFlame2UI::on_pair_button_change_(bool pressed) {
   // learn-mode pairing. Mirrors the encoder long-press behavior so users
   // discover whichever they happen to find first.
   this->last_interaction_ms_ = millis();
+  this->wake_backlight_();
   if (pressed && !this->last_pair_button_state_) {
     this->pair_button_pressed_at_ms_ = millis();
   } else if (!pressed && this->last_pair_button_state_) {
@@ -146,6 +173,7 @@ void ProFlame2UI::on_pair_button_change_(bool pressed) {
 void ProFlame2UI::on_button_press_() {
   this->last_interaction_ms_ = millis();
   this->button_pressed_at_ms_ = this->last_interaction_ms_;
+  this->wake_backlight_();
   // No action on press — wait for release so we can distinguish short/long.
 }
 
@@ -237,6 +265,22 @@ void ProFlame2UI::on_button_release_() {
       ESP_LOGI(TAG, "Toggle SEC FLAME → %s", new_state ? "ON" : "OFF");
       return;
     }
+    if (this->selected_ == Field::kLeds) {
+      // Toggle the HA-visible "Status LEDs Enabled" template switch. The
+      // YAML wires its on_turn_off to immediately kill the LED light, and
+      // the proflame2.power.on_turn_on automation gates LED activation on
+      // the switch's state — so a single toggle here updates both surfaces.
+      if (this->leds_switch_ != nullptr) {
+        const bool new_state = !this->leds_switch_->state;
+        if (new_state) {
+          this->leds_switch_->turn_on();
+        } else {
+          this->leds_switch_->turn_off();
+        }
+        ESP_LOGI(TAG, "Toggle STATUS LEDS → %s", new_state ? "ON" : "OFF");
+      }
+      return;
+    }
     this->ui_state_ = UIState::kEdit;
     ESP_LOGD(TAG, "Edit %s", this->field_label_(this->selected_));
     return;
@@ -256,6 +300,11 @@ bool ProFlame2UI::is_field_navigable_(Field f) const {
   // always reachable so the cycle never starves.
   if (!this->parent_->current_state_.power &&
       (f == Field::kLight || f == Field::kSecondary)) {
+    return false;
+  }
+  // The LED-toggle field only makes sense when a switch is wired. Hide it
+  // entirely on builds without a status-LED strip (plain ESP32, etc).
+  if (f == Field::kLeds && this->leds_switch_ == nullptr) {
     return false;
   }
   return true;
@@ -306,6 +355,10 @@ void ProFlame2UI::apply_delta_to_selected_(int direction) {
       // Info is a click-action menu item — rotation is a no-op. Don't fall
       // through to queue_send.
       return;
+    case Field::kLeds:
+      // Settings cog toggles via click only — rotation is a no-op so a
+      // stray bump doesn't accidentally turn the strip off.
+      return;
     case Field::kFlame: {
       int v = static_cast<int>(state.flame_level) + direction;
       v = std::clamp(v, 0, 6);
@@ -337,6 +390,10 @@ const char *ProFlame2UI::field_label_(Field f) const {
     case Field::kPower:     return "POWER";
     case Field::kSecondary: return "SEC FLAME";
     case Field::kLight:     return "LIGHT";
+    // kLeds is the only settings entry today; the value column shows
+    // ON/OFF so the label can stay plain. (Avoid unicode glyphs — the
+    // bundled Roboto subset doesn't include them.)
+    case Field::kLeds:      return "LEDs";
     case Field::kInfo:      return "INFO";
     default:                return "?";
   }
@@ -353,6 +410,9 @@ int ProFlame2UI::field_value_(Field f) const {
     case Field::kPower:     return state.power ? 1 : 0;
     case Field::kSecondary: return state.secondary_flame ? 1 : 0;
     case Field::kLight:     return state.light_level;
+    case Field::kLeds:
+      return (this->leds_switch_ != nullptr && this->leds_switch_->state) ? 1
+                                                                          : 0;
     case Field::kInfo:      return 0;
     default:                return 0;
   }
@@ -475,6 +535,7 @@ void ProFlame2UI::draw_idle_(display::Display &it, int width, int height) {
         break;
       case Field::kPower:
       case Field::kSecondary:
+      case Field::kLeds:
         std::snprintf(raw_buf, sizeof(raw_buf), "%s", v ? "ON" : "OFF");
         value_color = v ? kGreen : kDim;
         break;

@@ -146,16 +146,19 @@ void ProFlame2Component::setup() {
   // NVS-backed learned state (serial + ECC) — overrides YAML when valid.
   this->load_learned_state_();
 
-  // init state
+  // init state — flame and fan default to max so a "Power ON" out of the
+  // box gives the fireplace a usable burner level + airflow without the
+  // user having to dial them up first. Light stays 0 (it's the kind of
+  // thing you opt into per session), and pilot/aux/secondary stay off.
   this->current_state_ = ProFlame2Command{
       .pilot_cpi = false,
       .light_level = 0,
       .thermostat = false,
       .power = false,
       .secondary_flame = false,
-      .fan_level = 0,
+      .fan_level = 6,
       .aux_power = false,
-      .flame_level = 0};
+      .flame_level = 6};
 
   ESP_LOGCONFIG(TAG, "ProFlame 2 setup complete");
 }
@@ -163,6 +166,21 @@ void ProFlame2Component::setup() {
 void ProFlame2Component::loop() {
   if (this->send_pending_) {
     const uint32_t now = millis();
+
+    // Auto-recover from a stuck TX_ERROR. Underflows happen when a long
+    // loop iteration (display redraw, WiFi housekeeping, learn-mode
+    // service) starves the FIFO mid-transmission — service_tx_() has
+    // already strobed SIDLE+SFTX and zeroed tx_repeat_left_, so all we
+    // need to do is flip the state back so the *next* queue_send goes
+    // through. Without this, one bad TX permanently bricks the path
+    // until reboot.
+    if (this->tx_state_ == TX_ERROR &&
+        (now - this->last_transmission_ >= MIN_TRANSMISSION_INTERVAL)) {
+      ESP_LOGW(TAG, "Recovering from TX_ERROR — retrying");
+      this->tx_state_ = TX_IDLE;
+      this->tx_repeat_left_ = 0;
+    }
+
     if (this->spi_ready_ && this->tx_state_ == TX_IDLE &&
         this->tx_repeat_left_ == 0 && !this->rx_active_ &&
         (now - this->last_transmission_ >= MIN_TRANSMISSION_INTERVAL)) {
