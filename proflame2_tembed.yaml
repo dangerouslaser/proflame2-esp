@@ -183,12 +183,19 @@ proflame2:
     name: "Secondary Flame"
     icon: "mdi:fire"
 
-  # HA-side trigger to start learn-mode pairing. Confirmation still requires
-  # an on-device encoder long-press once the captured values converge —
-  # intentional safety gate, since this commits values for a gas appliance.
+  # HA-side pairing controls. T-Embed users can also drive the whole flow
+  # from the on-device encoder (long-press to start, long-press to confirm
+  # at convergence, short-press to cancel) — these HA buttons are equivalent
+  # for users who'd rather pair from the dashboard.
   pair:
     name: "Pair Remote"
     icon: "mdi:remote"
+  pair_confirm:
+    name: "Confirm Pairing"
+    icon: "mdi:check-circle-outline"
+  pair_cancel:
+    name: "Cancel Pairing"
+    icon: "mdi:close-circle-outline"
 
   heat_flame_level:
     name: "Heat Flame Level"

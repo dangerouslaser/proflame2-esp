@@ -267,6 +267,34 @@ before the device will let you confirm):
 
 If any of those fail, the device discards everything and re-listens.
 
+## Pairing on-device (plain ESP32 + CC1101)
+
+Same algebraic recovery, just driven from Home Assistant instead of an
+on-device encoder. Requires `gdo0_pin` wired up — RX is unavailable
+without it.
+
+1. Flash `proflame2_fireplace.yaml` with placeholder `serial_number` /
+   `ecc_constants`. Make sure `gdo0_pin` is set in YAML.
+2. In Home Assistant, find the three pairing buttons exposed by the
+   device: **Pair Remote**, **Confirm Pairing**, **Cancel Pairing**.
+3. Click **Pair Remote**. The device starts a 60 s listening window;
+   ESPHome logs say `Learn-mode armed — press any button on the OEM remote`.
+4. Press any button on your OEM remote (power, flame up, etc.) 3 times
+   within ~30 cm of the device. Logs report `N/3 valid packets agree`.
+5. Once the log shows `CONVERGED — awaiting user confirm: serial=0x…`,
+   click **Confirm Pairing**. The captured serial + ECC are committed to
+   NVS, and the device logs `Learned values committed`.
+6. Click **Cancel Pairing** at any point to abort the listening window
+   without committing.
+
+The same safety gates from the T-Embed flow apply — packets must agree
+byte-for-byte, checksum cross-validates, etc. The only difference is the
+*confirm* step: T-Embed requires a physical encoder long-press, plain
+ESP32 trusts the HA button click. If you'd rather not expose the
+`pair_confirm` button in HA, you can omit it from your YAML and instead
+write a YAML automation that calls `learn_confirm()` after some other
+trigger (e.g. a separate physical GPIO button).
+
 ## Pairing via SDR (any board)
 
 The traditional path — works on every supported board, including the generic

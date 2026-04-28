@@ -110,6 +110,22 @@ proflame2:
     name: "Secondary Flame"
     icon: "mdi:fire"
 
+  # HA-side pairing controls. Three explicit clicks complete a pairing:
+  #   1. Press OEM remote button (puts the fireplace into learn-mode).
+  #   2. "Pair Remote" arms the receiver.
+  #   3. Press OEM remote 2-3 more times so 3 packets agree.
+  #   4. "Confirm Pairing" commits the captured serial + ECC to NVS.
+  # Requires gdo0_pin wired up — without it, RX is unavailable.
+  pair:
+    name: "Pair Remote"
+    icon: "mdi:remote"
+  pair_confirm:
+    name: "Confirm Pairing"
+    icon: "mdi:check-circle-outline"
+  pair_cancel:
+    name: "Cancel Pairing"
+    icon: "mdi:close-circle-outline"
+
   # Persistent heat-mode behavior (applied each time the climate auto-activates
   # the burner). Tweak at runtime in HA — no reflash needed.
   heat_flame_level:

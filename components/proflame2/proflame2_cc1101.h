@@ -510,15 +510,41 @@ class ProFlame2HeatSecondaryFlameSwitch : public switch_::Switch, public Compone
 };
 
 // HA-side trigger to start the learn-mode pairing flow without needing to
-// physically press the on-device pair button. Confirming the captured
-// constants still requires an on-device long-press — intentional, since this
-// controls a gas appliance.
+// physically press the on-device pair button. T-Embed users still get the
+// on-device encoder long-press shortcut.
 class ProFlame2PairButton : public button::Button, public Component {
  public:
   void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
 
  protected:
   void press_action() override { this->parent_->learn_start(); }
+
+  ProFlame2Component *parent_{nullptr};
+};
+
+// HA-side commit for a converged learn-mode candidate. Necessary on plain
+// ESP32 boards where there's no on-device encoder long-press to confirm
+// the captured serial + ECC. learn_confirm() is a no-op outside kConverged
+// so calling this at the wrong time is harmless.
+class ProFlame2PairConfirmButton : public button::Button, public Component {
+ public:
+  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
+
+ protected:
+  void press_action() override { this->parent_->learn_confirm(); }
+
+  ProFlame2Component *parent_{nullptr};
+};
+
+// HA-side abort for an in-flight learn-mode flow. Idempotent — calling it
+// from kIdle is a no-op, so it's safe to leave in HA as a "stop pairing"
+// escape hatch.
+class ProFlame2PairCancelButton : public button::Button, public Component {
+ public:
+  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
+
+ protected:
+  void press_action() override { this->parent_->learn_cancel(); }
 
   ProFlame2Component *parent_{nullptr};
 };

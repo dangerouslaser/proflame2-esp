@@ -75,6 +75,12 @@ ProFlame2UI = proflame2_ns.class_("ProFlame2UI", cg.Component)
 ProFlame2PairButton = proflame2_ns.class_(
     "ProFlame2PairButton", button.Button, cg.Component
 )
+ProFlame2PairConfirmButton = proflame2_ns.class_(
+    "ProFlame2PairConfirmButton", button.Button, cg.Component
+)
+ProFlame2PairCancelButton = proflame2_ns.class_(
+    "ProFlame2PairCancelButton", button.Button, cg.Component
+)
 
 CONF_GDO0_PIN = "gdo0_pin"
 # T-Embed CC1101 board-quirk pins. Optional everywhere; ignored on plain
@@ -91,6 +97,8 @@ CONF_FLAME = "flame"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
 CONF_PAIR = "pair"
+CONF_PAIR_CONFIRM = "pair_confirm"
+CONF_PAIR_CANCEL = "pair_cancel"
 CONF_CLIMATE = "climate"
 CONF_HYSTERESIS = "hysteresis"
 CONF_HEAT_FLAME_LEVEL = "heat_flame_level"
@@ -194,6 +202,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FAN): number.number_schema(ProFlame2FanNumber),
         cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
         cv.Optional(CONF_PAIR): button.button_schema(ProFlame2PairButton),
+        cv.Optional(CONF_PAIR_CONFIRM): button.button_schema(ProFlame2PairConfirmButton),
+        cv.Optional(CONF_PAIR_CANCEL): button.button_schema(ProFlame2PairCancelButton),
         cv.Optional(CONF_HEAT_FLAME_LEVEL): number.number_schema(ProFlame2ConfigNumber),
         cv.Optional(CONF_HEAT_FAN_LEVEL): number.number_schema(ProFlame2ConfigNumber),
         cv.Optional(CONF_HEAT_SECONDARY_FLAME): switch.switch_schema(
@@ -319,6 +329,20 @@ async def to_code(config):
 
     if CONF_PAIR in config:
         conf = config[CONF_PAIR]
+        btn = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(btn, conf)
+        await button.register_button(btn, conf)
+        cg.add(btn.set_parent(var))
+
+    if CONF_PAIR_CONFIRM in config:
+        conf = config[CONF_PAIR_CONFIRM]
+        btn = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(btn, conf)
+        await button.register_button(btn, conf)
+        cg.add(btn.set_parent(var))
+
+    if CONF_PAIR_CANCEL in config:
+        conf = config[CONF_PAIR_CANCEL]
         btn = cg.new_Pvariable(conf[CONF_ID])
         await cg.register_component(btn, conf)
         await button.register_button(btn, conf)
