@@ -1,0 +1,208 @@
+# ProFlame 2 — LilyGo T-Embed CC1101 build.
+#
+# Hardware reference: https://github.com/Xinyuan-LilyGO/T-Embed-CC1101
+#
+# Pin map (verified from LilyGo's official repo):
+#   CC1101:    CS=12  GDO0=3   GDO2=38
+#   ST7789V:   CS=41  DC=16    RST=40   BL=21        (added in commit 4)
+#   SPI bus:   CLK=11 MOSI=9   MISO=10  (shared between CC1101 and LCD)
+#   Encoder:   A=4    B=5      BTN=0    (added in commit 4)
+#
+# This commit (3) is TX-only — the display + encoder are intentionally absent;
+# they arrive in commit 4 with the proflame2_ui sub-component.
+
+esphome:
+  name: proflame2-tembed
+  friendly_name: ProFlame2 T-Embed Remote
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: recommended
+
+# T-Embed has 8MB OPI PSRAM. Not strictly required at this commit, but enabling
+# it now keeps the build profile consistent with later commits that allocate
+# display framebuffers in PSRAM.
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  # level: VERBOSE
+  # logs:
+  #   proflame2: VERBOSE
+
+api:
+  encryption:
+    key: !secret fireplace_remote_api_key
+
+ota:
+  - platform: esphome
+    password: !secret fireplace_remote_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "ProFlame2-TEmbed"
+    password: !secret fireplace_remote_wifi_ap_password
+
+captive_portal:
+
+# Single SPI bus — the T-Embed CC1101 multiplexes the radio and LCD on the
+# same MOSI/MISO/CLK lines, distinguished by their CS pins. ESPHome's SPI
+# layer serializes accesses by CS automatically.
+spi:
+  clk_pin: GPIO11
+  mosi_pin: GPIO9
+  miso_pin: GPIO10
+
+external_components:
+  # Pull the proflame2 component from the T-Embed feature branch on the fork.
+  # Switch to @main once the branch is merged.
+  - source: github://dangerouslaser/proflame2-esp@feature/tembed
+    components: [proflame2]
+  # For local development against an editable component checkout, replace the
+  # above with:
+  # - source:
+  #     type: local
+  #     path: /config/components
+  #   components: [proflame2]
+
+proflame2:
+  id: fireplace
+  cs_pin: GPIO12
+  gdo0_pin: GPIO3
+  # Pre-pairing seed values — ignored at runtime once the on-device learn-mode
+  # (commit 7) writes a learned blob to NVS. For a fresh device, leave these
+  # at any safe default and pair via the encoder UI on first boot.
+  serial_number: !secret fireplace_remote_serial_number
+  ecc_constants:
+    c1: 0x08
+    d1: 0x0E
+    c2: 0x0B
+    d2: 0x07
+
+  power:
+    name: "Power"
+    icon: "mdi:fireplace"
+
+  pilot:
+    name: "Pilot Mode"
+    icon: "mdi:fire"
+    entity_category: config
+
+  aux:
+    name: "Aux Power"
+    icon: "mdi:power-plug"
+
+  flame:
+    name: "Flame Height"
+    icon: "mdi:fire"
+    mode: slider
+
+  fan:
+    name: "Fan Speed"
+    icon: "mdi:fan"
+    mode: slider
+
+  light:
+    name: "Fireplace Light"
+    icon: "mdi:lightbulb"
+
+  secondary_flame:
+    name: "Secondary Flame"
+    icon: "mdi:fire"
+
+  send:
+    name: "Send Commands"
+    icon: "mdi:send"
+
+  heat_flame_level:
+    name: "Heat Flame Level"
+    icon: "mdi:fire"
+    entity_category: config
+  heat_fan_level:
+    name: "Heat Fan Level"
+    icon: "mdi:fan"
+    entity_category: config
+  heat_secondary_flame:
+    name: "Heat Secondary Flame"
+    icon: "mdi:fire"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  climate:
+    name: "Fireplace"
+    sensor: room_temp
+    visual:
+      min_temperature: 60°F
+      max_temperature: 85°F
+      temperature_step:
+        target_temperature: 0.5°F
+        current_temperature: 0.1°F
+
+sensor:
+  - platform: homeassistant
+    id: room_temp
+    entity_id: sensor.fireplace_room_temperature
+    filters:
+      - lambda: 'return (x - 32.0f) * 5.0f / 9.0f;'  # °F → °C
+  - platform: uptime
+    type: seconds
+    name: "Uptime"
+  - platform: internal_temperature
+    name: "Internal Temperature"
+  - platform: wifi_signal
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: diagnostic
+  - platform: copy
+    source_id: wifi_signal_db
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
+
+binary_sensor:
+  - platform: status
+    name: "Status"
+
+button:
+  - platform: restart
+    name: "Restart"
+    entity_category: config
+  - platform: factory_reset
+    name: "Factory Reset"
+    entity_category: config
+  - platform: safe_mode
+    name: "Safe Mode"
+    entity_category: config
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      entity_category: diagnostic
+    ssid:
+      name: "Connected SSID"
+      entity_category: diagnostic
+    mac_address:
+      name: "Mac Address"
+      entity_category: diagnostic
+
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret fireplace_remote_web_password
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
