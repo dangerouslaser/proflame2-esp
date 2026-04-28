@@ -172,14 +172,14 @@ void ProFlame2Component::loop() {
 
     // Auto-recover from a stuck TX_ERROR. Underflows happen when a long
     // loop iteration (display redraw, WiFi housekeeping, learn-mode
-    // service) starves the FIFO mid-transmission — service_tx_() has
-    // already strobed SIDLE+SFTX and zeroed tx_repeat_left_, so all we
-    // need to do is flip the state back so the *next* queue_send goes
-    // through. Without this, one bad TX permanently bricks the path
-    // until reboot.
+    // service) starves the FIFO mid-transmission. service_tx_() has
+    // already strobed SIDLE+SFTX, zeroed tx_repeat_left_, and set
+    // send_pending_=true so the failed packet's intent is preserved.
+    // We just clear the error state and let the existing path below
+    // re-send current_state_ — the original user input isn't lost.
     if (this->tx_state_ == TX_ERROR &&
         (now - this->last_transmission_ >= MIN_TRANSMISSION_INTERVAL)) {
-      ESP_LOGW(TAG, "Recovering from TX_ERROR — retrying");
+      ESP_LOGW(TAG, "Recovering from TX_ERROR — re-queuing dropped packet");
       this->tx_state_ = TX_IDLE;
       this->tx_repeat_left_ = 0;
     }
@@ -663,6 +663,10 @@ void ProFlame2Component::service_tx_() {
     this->send_strobe(CC1101_SFTX);
     this->tx_state_ = TX_ERROR;
     this->tx_repeat_left_ = 0;
+    // Re-queue: current_state_ already holds the user's intent; the recovery
+    // branch in loop() will retry once MIN_TRANSMISSION_INTERVAL elapses.
+    this->send_pending_ = true;
+    this->buffer_dirty_ = true;
     return;
   }
 
@@ -674,6 +678,8 @@ void ProFlame2Component::service_tx_() {
     this->send_strobe(CC1101_SFTX);
     this->tx_state_ = TX_ERROR;
     this->tx_repeat_left_ = 0;
+    this->send_pending_ = true;
+    this->buffer_dirty_ = true;
     return;
   }
 
