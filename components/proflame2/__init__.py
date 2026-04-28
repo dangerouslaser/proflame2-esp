@@ -8,6 +8,9 @@ from esphome.components import (
     light,
     climate,
     sensor,
+    binary_sensor,
+    display,
+    font,
 )
 from esphome.const import (
     CONF_ID,
@@ -18,7 +21,7 @@ from esphome.const import (
 from esphome import pins
 
 DEPENDENCIES = ["spi", "switch", "number", "button", "light", "fan", "climate", "sensor"]
-AUTO_LOAD = ["switch", "number", "button", "light", "fan", "climate", "sensor"]
+AUTO_LOAD = ["switch", "number", "button", "light", "fan", "climate", "sensor", "binary_sensor"]
 
 proflame2_ns = cg.esphome_ns.namespace("proflame2")
 ProFlame2Component = proflame2_ns.class_(
@@ -65,6 +68,10 @@ ProFlame2Climate = proflame2_ns.class_(
     "ProFlame2Climate", climate.Climate, cg.Component
 )
 
+# Standalone physical UI (display + encoder) — only meaningful on hardware
+# with a screen and rotary encoder, e.g. the LilyGo T-Embed CC1101.
+ProFlame2UI = proflame2_ns.class_("ProFlame2UI", cg.Component)
+
 ProFlame2SendButton = proflame2_ns.class_(
     "ProFlame2SendButton", button.Button, cg.Component
 )
@@ -89,6 +96,16 @@ CONF_ECC_C1 = "c1"
 CONF_ECC_D1 = "d1"
 CONF_ECC_C2 = "c2"
 CONF_ECC_D2 = "d2"
+
+CONF_UI = "ui"
+CONF_DISPLAY = "display"
+CONF_ENCODER = "encoder"
+CONF_ENCODER_BUTTON = "encoder_button"
+CONF_STATUS_SENSOR = "status_sensor"
+CONF_FONTS = "fonts"
+CONF_FONT_SMALL = "small"
+CONF_FONT_MEDIUM = "medium"
+CONF_FONT_LARGE = "large"
 
 # Defaults match the dangerouslaser pairing (serial 0x320A02). Other
 # fireplaces will need different values — see README "Pairing your remote".
@@ -125,6 +142,29 @@ CLIMATE_SCHEMA = climate.climate_schema(ProFlame2Climate).extend(
     }
 )
 
+# Optional sub-component: a standalone physical UI driving an LCD + rotary
+# encoder. Wired up via existing display / sensor / binary_sensor / font
+# components; this schema just glues IDs together. Only meaningful on hardware
+# like the LilyGo T-Embed CC1101.
+UI_FONTS_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_FONT_SMALL): cv.use_id(font.Font),
+        cv.Required(CONF_FONT_MEDIUM): cv.use_id(font.Font),
+        cv.Required(CONF_FONT_LARGE): cv.use_id(font.Font),
+    }
+)
+
+UI_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(ProFlame2UI),
+        cv.Required(CONF_DISPLAY): cv.use_id(display.Display),
+        cv.Required(CONF_ENCODER): cv.use_id(sensor.Sensor),
+        cv.Required(CONF_ENCODER_BUTTON): cv.use_id(binary_sensor.BinarySensor),
+        cv.Optional(CONF_STATUS_SENSOR): cv.use_id(binary_sensor.BinarySensor),
+        cv.Required(CONF_FONTS): UI_FONTS_SCHEMA,
+    }
+)
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(ProFlame2Component),
@@ -148,6 +188,7 @@ CONFIG_SCHEMA = cv.Schema(
             ProFlame2HeatSecondaryFlameSwitch
         ),
         cv.Optional(CONF_CLIMATE): CLIMATE_SCHEMA,
+        cv.Optional(CONF_UI): UI_SCHEMA,
     }
 ).extend(spi.spi_device_schema())
 
@@ -307,3 +348,30 @@ async def to_code(config):
         if heat_secondary_sw is not None:
             cg.add(clim.set_heat_secondary_flame(heat_secondary_sw))
         cg.add(var.set_climate(clim))
+
+    # Optional standalone UI sub-component (LCD + rotary encoder + button).
+    # Wired against pre-declared display / sensor / binary_sensor / font IDs;
+    # the actual rendering happens via the display lambda calling
+    # id(<ui_id>)->draw(it).
+    if CONF_UI in config:
+        conf = config[CONF_UI]
+        ui = cg.new_Pvariable(conf[CONF_ID])
+        await cg.register_component(ui, conf)
+        cg.add(ui.set_parent(var))
+        # CONF_DISPLAY is validated at config time (cv.use_id) but not bound to
+        # the C++ component — rendering happens via the display lambda calling
+        # id(<ui_id>)->draw(it), which already has the display reference.
+        enc = await cg.get_variable(conf[CONF_ENCODER])
+        cg.add(ui.set_encoder(enc))
+        btn = await cg.get_variable(conf[CONF_ENCODER_BUTTON])
+        cg.add(ui.set_encoder_button(btn))
+        if CONF_STATUS_SENSOR in conf:
+            status = await cg.get_variable(conf[CONF_STATUS_SENSOR])
+            cg.add(ui.set_status_sensor(status))
+        fonts = conf[CONF_FONTS]
+        font_small = await cg.get_variable(fonts[CONF_FONT_SMALL])
+        font_medium = await cg.get_variable(fonts[CONF_FONT_MEDIUM])
+        font_large = await cg.get_variable(fonts[CONF_FONT_LARGE])
+        cg.add(ui.set_font_small(font_small))
+        cg.add(ui.set_font_medium(font_medium))
+        cg.add(ui.set_font_large(font_large))

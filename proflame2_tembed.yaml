@@ -4,12 +4,9 @@
 #
 # Pin map (verified from LilyGo's official repo):
 #   CC1101:    CS=12  GDO0=3   GDO2=38
-#   ST7789V:   CS=41  DC=16    RST=40   BL=21        (added in commit 4)
+#   ST7789V:   CS=41  DC=16    RST=40   BL=21
 #   SPI bus:   CLK=11 MOSI=9   MISO=10  (shared between CC1101 and LCD)
-#   Encoder:   A=4    B=5      BTN=0    (added in commit 4)
-#
-# This commit (3) is TX-only — the display + encoder are intentionally absent;
-# they arrive in commit 4 with the proflame2_ui sub-component.
+#   Encoder:   A=4    B=5      BTN=0
 
 esphome:
   name: proflame2-tembed
@@ -59,6 +56,48 @@ spi:
   clk_pin: GPIO11
   mosi_pin: GPIO9
   miso_pin: GPIO10
+
+# Backlight as a simple binary output. C4 keeps it always-on; later commits
+# add a dim/sleep timeout via on_idle/on_interaction triggers.
+output:
+  - platform: gpio
+    id: lcd_backlight_output
+    pin: GPIO21
+
+light:
+  - platform: binary
+    id: lcd_backlight
+    output: lcd_backlight_output
+    restore_mode: ALWAYS_ON
+    internal: true
+
+# Fonts pulled live from Google Fonts at build time; no manual download needed.
+font:
+  - file: "gfonts://Roboto"
+    id: font_sm
+    size: 14
+  - file: "gfonts://Roboto"
+    id: font_md
+    size: 22
+  - file: "gfonts://Roboto"
+    id: font_lg
+    size: 36
+
+display:
+  - platform: st7789v
+    id: lcd
+    model: CUSTOM
+    height: 320
+    width: 170
+    offset_height: 0
+    offset_width: 35
+    cs_pin: GPIO41
+    dc_pin: GPIO16
+    reset_pin: GPIO40
+    rotation: 90
+    update_interval: 200ms
+    lambda: |-
+      id(ui)->draw(it);
 
 external_components:
   # Pull the proflame2 component from the T-Embed feature branch on the fork.
@@ -145,7 +184,28 @@ proflame2:
         target_temperature: 0.5°F
         current_temperature: 0.1°F
 
+  # Standalone physical UI. Renders fireplace state on the LCD and adjusts
+  # power/flame/fan/light via the rotary encoder. status_sensor lets the UI
+  # show "HA: connected" / "HA: offline" so users know whether HA is reachable.
+  ui:
+    id: ui
+    display: lcd
+    encoder: enc
+    encoder_button: enc_btn
+    status_sensor: ha_status
+    fonts:
+      small: font_sm
+      medium: font_md
+      large: font_lg
+
 sensor:
+  # Rotary encoder: A=4, B=5. Resolution=1 → one detent = one state change,
+  # which the UI controller translates into a single field adjustment.
+  - platform: rotary_encoder
+    id: enc
+    pin_a: GPIO4
+    pin_b: GPIO5
+    resolution: 1
   - platform: homeassistant
     id: room_temp
     entity_id: sensor.fireplace_room_temperature
@@ -172,7 +232,19 @@ sensor:
 
 binary_sensor:
   - platform: status
+    id: ha_status
     name: "Status"
+  # Encoder push-button: GPIO 0 is a strap pin. LilyGo wires it with a hardware
+  # pull-up so we declare INPUT-only and rely on the external pull-up. Inverted
+  # because the button pulls the line LOW when pressed.
+  - platform: gpio
+    id: enc_btn
+    pin:
+      number: GPIO0
+      mode:
+        input: true
+      inverted: true
+    internal: true
 
 button:
   - platform: restart
