@@ -102,7 +102,19 @@ external_components:
     components: [proflame2]
 ```
 
-A complete example lives in [`proflame2_fireplace.yaml`](./proflame2_fireplace.yaml).
+### Pick the right example YAML for your board
+
+Two ready-to-flash example configs ship in the repo. They use the same
+`proflame2:` component but declare different pin maps and entity sets to
+match each board:
+
+| Your hardware | YAML to use | Notes |
+|---|---|---|
+| Plain ESP32 dev board + CC1101 breakout | [`proflame2_fireplace.yaml`](./proflame2_fireplace.yaml) | TX works out of the box. Wire `gdo0_pin` to enable on-device pairing (RX). |
+| LilyGo T-Embed CC1101 | [`proflame2_tembed.yaml`](./proflame2_tembed.yaml) | All-in-one — adds LCD UI, rotary encoder, battery sensor, pair button. Pin map is fixed by the board. |
+
+Each YAML carries a header block reiterating the target hardware and pin
+expectations — read those before adapting either to your wiring.
 
 ## Minimum configuration
 

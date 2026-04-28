@@ -1,3 +1,19 @@
+# =============================================================================
+# Target board: generic ESP32 dev board + CC1101 breakout (e.g. ESP32-WROOM)
+#
+# Use this YAML if you wired a CC1101 433/315 MHz module to a plain ESP32 dev
+# board over SPI. For the LilyGo T-Embed CC1101 (integrated radio + LCD +
+# rotary encoder + battery), use proflame2_tembed.yaml instead.
+#
+# Required wiring (any free SPI-capable GPIOs work — pins below are examples):
+#   CC1101 CS    → GPIO 21
+#   CC1101 GDO0  → GPIO 22  (optional; only needed for on-device pairing)
+#   SPI MOSI     → GPIO 23
+#   SPI MISO     → GPIO 19
+#   SPI SCLK     → GPIO 18
+# Adjust the cs_pin / gdo0_pin / spi: section below to match your wiring.
+# =============================================================================
+
 esphome:
   name: living-room-fireplace-remote
   friendly_name: Living Room Fireplace Remote

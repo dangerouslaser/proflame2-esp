@@ -1,12 +1,21 @@
-# ProFlame 2 — LilyGo T-Embed CC1101 build.
+# =============================================================================
+# Target board: LilyGo T-Embed CC1101 (ESP32-S3 + integrated CC1101 + ST7789V
+# 1.9" LCD + rotary encoder + BQ27220 fuel gauge + Li-ion battery).
+#
+# Use this YAML if you have a T-Embed CC1101. For a generic ESP32 dev board
+# with a CC1101 breakout, use proflame2_fireplace.yaml instead — that build
+# omits the LCD/encoder/battery entities.
 #
 # Hardware reference: https://github.com/Xinyuan-LilyGO/T-Embed-CC1101
 #
 # Pin map (verified from LilyGo's official repo):
-#   CC1101:    CS=12  GDO0=3   GDO2=38
-#   ST7789V:   CS=41  DC=16    RST=40   BL=21
-#   SPI bus:   CLK=11 MOSI=9   MISO=10  (shared between CC1101 and LCD)
-#   Encoder:   A=4    B=5      BTN=0
+#   CC1101:    CS=12  GDO0=3   GDO2=38   PWR_EN=15  ANT_SW0=48  ANT_SW1=47
+#   ST7789V:   CS=41  DC=16    RST=40    BL=21
+#   SPI bus:   CLK=11 MOSI=9   MISO=10   (shared between CC1101 and LCD)
+#   I2C bus:   SDA=8  SCL=18   (BQ27220 fuel gauge @ 0x55, BQ25896 @ 0x6B,
+#              PN532 NFC @ 0x24 — only fuel gauge is used)
+#   Encoder:   A=4    B=5      BTN=0    USER_KEY=6
+# =============================================================================
 
 esphome:
   name: proflame2-tembed
