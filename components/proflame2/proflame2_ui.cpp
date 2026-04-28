@@ -36,6 +36,8 @@ void ProFlame2UI::setup() {
     this->encoder_button_->add_on_state_callback([this](bool pressed) {
       if (pressed && !this->last_button_state_) {
         this->on_button_press_();
+      } else if (!pressed && this->last_button_state_) {
+        this->on_button_release_();
       }
       this->last_button_state_ = pressed;
     });
@@ -53,12 +55,72 @@ void ProFlame2UI::loop() {
 
 void ProFlame2UI::on_encoder_delta_(int direction) {
   this->last_interaction_ms_ = millis();
+  // Encoder rotation has no role in learn-mode (start/confirm/cancel are all
+  // button-driven). Drop deltas while a learn flow is active so accidental
+  // bumps don't mutate the underlying control state mid-pairing.
+  if (this->parent_ != nullptr &&
+      this->parent_->get_learn_state() !=
+          ProFlame2Component::LearnState::kIdle) {
+    return;
+  }
   this->apply_delta_to_selected_(direction);
 }
 
 void ProFlame2UI::on_button_press_() {
   this->last_interaction_ms_ = millis();
-  this->cycle_selection_();
+  this->button_pressed_at_ms_ = this->last_interaction_ms_;
+  // No action on press — wait for release so we can distinguish short/long.
+}
+
+void ProFlame2UI::on_button_release_() {
+  const uint32_t now = millis();
+  const uint32_t held_for = now - this->button_pressed_at_ms_;
+  this->last_interaction_ms_ = now;
+
+  if (this->parent_ == nullptr) {
+    return;
+  }
+
+  const auto learn_state = this->parent_->get_learn_state();
+  const bool long_press = held_for >= kLongPressMs;
+
+  if (learn_state == ProFlame2Component::LearnState::kIdle) {
+    if (long_press) {
+      ESP_LOGI(TAG, "Long press → entering learn-mode");
+      this->parent_->learn_start();
+    } else {
+      this->cycle_selection_();
+    }
+    return;
+  }
+
+  // We're somewhere in the learn flow — button is the user's confirm/cancel.
+  switch (learn_state) {
+    case ProFlame2Component::LearnState::kListening:
+    case ProFlame2Component::LearnState::kCapturing:
+    case ProFlame2Component::LearnState::kFailed:
+      // Any press cancels and returns to idle.
+      ESP_LOGI(TAG, "Cancelling learn-mode");
+      this->parent_->learn_cancel();
+      break;
+    case ProFlame2Component::LearnState::kConverged:
+      if (long_press) {
+        // Long press confirms; short press cancels. Asymmetric on purpose
+        // — the user must hold to commit a value to NVS, since this controls
+        // a gas appliance.
+        ESP_LOGI(TAG, "Confirming learn-mode (long press)");
+        this->parent_->learn_confirm();
+      } else {
+        ESP_LOGI(TAG, "Cancelling learn-mode (short press at confirm)");
+        this->parent_->learn_cancel();
+      }
+      break;
+    case ProFlame2Component::LearnState::kPersisted:
+      // Auto-clears in service_learn_ — ignore button presses while saving.
+      break;
+    default:
+      break;
+  }
 }
 
 void ProFlame2UI::cycle_selection_() {
@@ -137,6 +199,18 @@ void ProFlame2UI::draw(display::Display &it) {
 
   const int width = it.get_width();
   const int height = it.get_height();
+
+  // When a learn flow is active, the UI is fully dedicated to it — the
+  // normal idle screen would just be confusing during pairing.
+  if (this->parent_->get_learn_state() !=
+      ProFlame2Component::LearnState::kIdle) {
+    this->draw_learn_(it, width, height);
+    return;
+  }
+  this->draw_idle_(it, width, height);
+}
+
+void ProFlame2UI::draw_idle_(display::Display &it, int width, int height) {
   const auto white = Color(0xFF, 0xFF, 0xFF);
   const auto dim = Color(0x80, 0x80, 0x80);
 
@@ -189,6 +263,88 @@ void ProFlame2UI::draw(display::Display &it) {
     }
 
     y += row_h;
+  }
+}
+
+void ProFlame2UI::draw_learn_(display::Display &it, int width, int height) {
+  using LearnState = ProFlame2Component::LearnState;
+  const auto white = Color(0xFF, 0xFF, 0xFF);
+  const auto green = Color(0x40, 0xC0, 0x40);
+  const auto amber = Color(0xFF, 0xB0, 0x00);
+  const auto red = Color(0xFF, 0x60, 0x60);
+
+  if (this->font_small_ != nullptr) {
+    it.print(4, 2, this->font_small_, white, "PAIRING");
+  }
+  it.line(0, 18, width, 18, white);
+
+  const auto state = this->parent_->get_learn_state();
+  const auto &cand = this->parent_->get_learn_candidate();
+
+  const char *headline = "";
+  Color headline_color = white;
+  switch (state) {
+    case LearnState::kListening:
+      headline = "Press a button on the OEM remote";
+      headline_color = white;
+      break;
+    case LearnState::kCapturing:
+      headline = "Capturing...";
+      headline_color = amber;
+      break;
+    case LearnState::kConverged:
+      headline = "Hold button to confirm";
+      headline_color = green;
+      break;
+    case LearnState::kPersisted:
+      headline = "Saved.";
+      headline_color = green;
+      break;
+    case LearnState::kFailed:
+      headline = "Pairing failed. Press to retry.";
+      headline_color = red;
+      break;
+    default:
+      headline = "";
+  }
+  if (this->font_medium_ != nullptr) {
+    it.print(8, 28, this->font_medium_, headline_color, headline);
+  }
+
+  // Detail block: candidate values once we have any.
+  if (this->font_small_ != nullptr &&
+      cand.valid_packet_count > 0) {
+    char line[64];
+    std::snprintf(line, sizeof(line), "serial: 0x%06X", cand.serial);
+    it.print(8, 64, this->font_small_, white, line);
+    std::snprintf(line, sizeof(line), "ECC: %X %X %X %X",
+                  cand.c1, cand.d1, cand.c2, cand.d2);
+    it.print(8, 84, this->font_small_, white, line);
+    std::snprintf(line, sizeof(line), "valid packets: %u/%u",
+                  cand.valid_packet_count,
+                  ProFlame2Component::kLearnMinPackets);
+    it.print(8, 104, this->font_small_, white, line);
+  }
+
+  // Footer hint.
+  if (this->font_small_ != nullptr) {
+    const char *hint = "";
+    switch (state) {
+      case LearnState::kListening:
+      case LearnState::kCapturing:
+        hint = "press = cancel";
+        break;
+      case LearnState::kConverged:
+        hint = "press = cancel  |  hold = confirm";
+        break;
+      case LearnState::kFailed:
+        hint = "press = back to idle";
+        break;
+      default:
+        hint = "";
+    }
+    it.print(width / 2, height - 14, this->font_small_, white,
+             display::TextAlign::TOP_CENTER, hint);
   }
 }
 

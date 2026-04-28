@@ -15,6 +15,7 @@
 #include "esphome/components/number/number.h"
 #include "esphome/components/button/button.h"
 #include "esphome/core/preferences.h"
+#include "proflame2_decode.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -185,12 +186,51 @@ class ProFlame2Component : public Component,
   void set_climate(ProFlame2Climate *clim) { this->climate_ = clim; }
 
   // RX capture (async serial mode). The ISR pushes (timestamp_us, level)
-  // pairs into a lock-free ring buffer; service_rx_() drains it in loop().
-  // For C5 the drain just logs at VERBOSE — the actual decoder lands in C6.
-  // Refuses to start while a TX is queued or in flight; idempotent.
+  // pairs into a lock-free ring buffer; service_rx_() drains it in loop()
+  // and feeds the decoder when a learn flow is active. Refuses to start
+  // while a TX is queued or in flight; idempotent.
   void start_rx_capture();
   void stop_rx_capture();
   bool is_rx_active() const { return this->rx_active_; }
+
+  // ======== Learn-mode (on-device remote pairing) =======================
+  enum class LearnState : uint8_t {
+    kIdle,         // not capturing
+    kListening,    // RX armed, no valid packet yet
+    kCapturing,    // ≥1 valid packet captured, awaiting more
+    kConverged,    // ≥3 consistent packets — awaiting user confirm
+    kPersisted,    // saved to NVS — auto-clears back to kIdle after 2 s
+    kFailed,       // timeout / mismatch — UI should prompt retry
+  };
+
+  struct LearnCandidate {
+    uint32_t serial{0};
+    uint8_t c1{0}, d1{0}, c2{0}, d2{0};
+    uint8_t valid_packet_count{0};
+  };
+
+  // Begin learn: clears the candidate, starts RX, transitions to kListening.
+  // No-op if already in any non-idle learn state — caller should learn_cancel
+  // first.
+  void learn_start();
+
+  // Stops RX, returns to kIdle. Existing NVS values (if any) are NOT touched.
+  void learn_cancel();
+
+  // Commit the converged candidate to NVS. Only valid in kConverged; returns
+  // false otherwise. Stops RX as a side effect; transient kPersisted state
+  // auto-clears to kIdle after a short hold so the UI can render confirmation.
+  bool learn_confirm();
+
+  LearnState get_learn_state() const { return this->learn_state_; }
+  const LearnCandidate &get_learn_candidate() const {
+    return this->learn_candidate_;
+  }
+
+  // How many packets must agree before the candidate is presented to the
+  // user for confirmation. Public so the UI can include it in its progress
+  // indicator.
+  static constexpr uint8_t kLearnMinPackets = 3;
 
   // DEBUG FUNCTIONS
   void debug_minimal_tx();
@@ -229,6 +269,16 @@ class ProFlame2Component : public Component,
   // be a static method; it gets `this` via the user-data argument.
   static void IRAM_ATTR rx_isr_(ProFlame2Component *self);
   void service_rx_();
+
+  // Learn-mode helpers (implemented in proflame2_learn.cpp).
+  void service_learn_();
+  void on_packet_decoded_(const DecodedPacket &p);
+  bool save_learned_state_(uint32_t serial, uint8_t c1, uint8_t d1,
+                           uint8_t c2, uint8_t d2);
+
+  // CRC-32/ISO-HDLC. Used by load_learned_state_ (validate) and
+  // save_learned_state_ (stamp). Static so it has no `this` dependency.
+  static uint32_t crc32_iso_(const uint8_t *data, size_t len);
 
   // Non-blocking TX state machine
   void start_tx_(const uint8_t *data, size_t len);
@@ -269,6 +319,15 @@ class ProFlame2Component : public Component,
   bool rx_isr_attached_{false};
   bool rx_active_{false};
   uint32_t rx_last_pulse_us_{0};
+
+  // Learn-mode state machine.
+  static constexpr uint32_t kLearnTimeoutMs = 60000;
+  static constexpr uint32_t kLearnPersistedHoldMs = 2000;
+  LearnState learn_state_{LearnState::kIdle};
+  LearnCandidate learn_candidate_{};
+  uint32_t learn_started_ms_{0};
+  uint32_t learn_persisted_ms_{0};
+  ProFlame2Decoder learn_decoder_{};
 
   // Component references
   switch_::Switch *power_switch_{nullptr};

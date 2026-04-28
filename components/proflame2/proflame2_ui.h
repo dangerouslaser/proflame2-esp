@@ -54,11 +54,16 @@ class ProFlame2UI : public Component {
 
   void on_encoder_delta_(int direction);  // direction is +1 or -1
   void on_button_press_();
+  void on_button_release_();
   void cycle_selection_();
   void apply_delta_to_selected_(int direction);
+  void draw_idle_(display::Display &it, int width, int height);
+  void draw_learn_(display::Display &it, int width, int height);
 
   const char *field_label_(Field f) const;
   int field_value_(Field f) const;
+
+  static constexpr uint32_t kLongPressMs = 1500;
 
   ProFlame2Component *parent_{nullptr};
   sensor::Sensor *encoder_{nullptr};
@@ -74,6 +79,7 @@ class ProFlame2UI : public Component {
   Field selected_{Field::kFlame};
   float last_encoder_value_{0.0f};
   bool last_button_state_{false};
+  uint32_t button_pressed_at_ms_{0};
   uint32_t last_interaction_ms_{0};
 };
 

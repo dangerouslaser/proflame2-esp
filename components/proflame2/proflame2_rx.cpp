@@ -87,13 +87,23 @@ void ProFlame2Component::stop_rx_capture() {
 }
 
 void ProFlame2Component::service_rx_() {
-  // Drain the ring. C6 will replace the per-edge log with a streaming feed
-  // into the Manchester decoder; for C5 the goal is just to confirm the ISR
-  // captures plausible pulse widths (≈208 µs half-bit, ≈417 µs full bit).
+  // Drain the ring. When a learn flow is in progress, feed every edge into
+  // the decoder; on a successful packet, hand it to the learn state machine.
+  // Outside learn-mode (e.g. a hypothetical future debug-only RX) the per-
+  // edge VERBOSE log still surfaces signal-quality info.
   while (this->rx_ring_tail_ != this->rx_ring_head_) {
     const auto &p = this->rx_ring_[this->rx_ring_tail_];
     const uint32_t dt = p.timestamp_us - this->rx_last_pulse_us_;
     this->rx_last_pulse_us_ = p.timestamp_us;
+
+    if (this->learn_state_ != LearnState::kIdle) {
+      const auto status =
+          this->learn_decoder_.ingest_edge(p.timestamp_us, p.level);
+      if (status == ProFlame2Decoder::Status::kPacketReady) {
+        this->on_packet_decoded_(this->learn_decoder_.get_packet());
+      }
+    }
+
     ESP_LOGV(TAG_RX, "edge: dt=%u us level=%d", static_cast<unsigned>(dt),
              p.level ? 1 : 0);
     this->rx_ring_tail_ = (this->rx_ring_tail_ + 1) % kRxRingSize;

@@ -15,12 +15,10 @@ namespace proflame2 {
 
 static const char *TAG = "proflame2";
 
-namespace {
-
 // CRC-32/ISO-HDLC (IEEE 802.3, polynomial 0xEDB88320). Bitwise / no table:
 // runs at most twice across the device's lifetime (boot load, learn confirm),
 // so flash-size footprint matters more than throughput.
-uint32_t crc32_iso(const uint8_t *data, size_t len) {
+uint32_t ProFlame2Component::crc32_iso_(const uint8_t *data, size_t len) {
   uint32_t crc = 0xFFFFFFFFu;
   for (size_t i = 0; i < len; i++) {
     crc ^= data[i];
@@ -30,8 +28,6 @@ uint32_t crc32_iso(const uint8_t *data, size_t len) {
   }
   return ~crc;
 }
-
-}  // namespace
 
 // CC1101 Configuration for 314.973 MHz OOK at 2400 baud — TX path.
 // Identical to the original boot-time register set; renamed from CC1101_CONFIG
@@ -127,6 +123,9 @@ void ProFlame2Component::loop() {
 
   if (this->rx_active_) {
     this->service_rx_();
+  }
+  if (this->learn_state_ != LearnState::kIdle) {
+    this->service_learn_();
   }
 
   // NOTE: tx_repeat_left_ is always 0 in normal operation — transmit_command()
@@ -860,7 +859,7 @@ bool ProFlame2Component::load_learned_state_() {
   }
   const size_t crc_len = sizeof(ProFlame2LearnedState) - sizeof(uint32_t);
   const uint32_t expected =
-      crc32_iso(reinterpret_cast<const uint8_t *>(&blob), crc_len);
+      crc32_iso_(reinterpret_cast<const uint8_t *>(&blob), crc_len);
   if (expected != blob.crc32) {
     ESP_LOGW(TAG,
              "Learned NVS blob CRC mismatch (got 0x%08X, expected 0x%08X); "
