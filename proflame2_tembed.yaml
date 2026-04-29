@@ -241,6 +241,9 @@ proflame2:
     # Settings cog on the UI that toggles this switch — same source of
     # truth as the HA "Status LEDs Enabled" toggle.
     leds_switch: leds_enabled
+    # Toggles the status-bar battery indicator between graphical bar (ON)
+    # and "BAT NN%" text (OFF). Default: ON.
+    battery_bar_switch: battery_as_bar
     fonts:
       small: font_sm
       medium: font_md
@@ -346,6 +349,16 @@ switch:
     on_turn_off:
       - light.turn_off:
           id: status_leds
+
+  # Settings-page toggle (also surfaces in HA) for the status-bar battery
+  # rendering: ON = graphical bar, OFF = "BAT NN%" text.
+  - platform: template
+    id: battery_as_bar
+    name: "Battery as Bar"
+    icon: "mdi:battery-50"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
 
 button:
   - platform: restart

@@ -128,6 +128,7 @@ CONF_STATUS_SENSOR = "status_sensor"
 CONF_BATTERY_SENSOR = "battery_sensor"
 CONF_BACKLIGHT = "backlight"
 CONF_LEDS_SWITCH = "leds_switch"
+CONF_BATTERY_BAR_SWITCH = "battery_bar_switch"
 CONF_FONTS = "fonts"
 CONF_FONT_SMALL = "small"
 CONF_FONT_MEDIUM = "medium"
@@ -191,6 +192,7 @@ UI_SCHEMA = cv.Schema(
         cv.Optional(CONF_BATTERY_SENSOR): cv.use_id(sensor.Sensor),
         cv.Optional(CONF_BACKLIGHT): cv.use_id(light.LightState),
         cv.Optional(CONF_LEDS_SWITCH): cv.use_id(switch.Switch),
+        cv.Optional(CONF_BATTERY_BAR_SWITCH): cv.use_id(switch.Switch),
         cv.Required(CONF_FONTS): UI_FONTS_SCHEMA,
     }
 )
@@ -453,6 +455,9 @@ async def to_code(config):
         if CONF_LEDS_SWITCH in conf:
             leds_sw = await cg.get_variable(conf[CONF_LEDS_SWITCH])
             cg.add(ui.set_leds_switch(leds_sw))
+        if CONF_BATTERY_BAR_SWITCH in conf:
+            bb_sw = await cg.get_variable(conf[CONF_BATTERY_BAR_SWITCH])
+            cg.add(ui.set_battery_bar_switch(bb_sw))
         fonts = conf[CONF_FONTS]
         font_small = await cg.get_variable(fonts[CONF_FONT_SMALL])
         font_medium = await cg.get_variable(fonts[CONF_FONT_MEDIUM])

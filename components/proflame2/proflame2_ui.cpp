@@ -459,6 +459,7 @@ int ProFlame2UI::field_value_(Field f) const {
 const char *ProFlame2UI::setting_label_(SettingItem s) const {
   switch (s) {
     case SettingItem::kLeds:         return "LEDs";
+    case SettingItem::kBatteryBar:   return "BATTERY BAR";
     case SettingItem::kClearPairing: return "CLEAR PAIRING";
     case SettingItem::kReboot:       return "REBOOT";
     case SettingItem::kBack:         return "BACK";
@@ -470,6 +471,13 @@ const char *ProFlame2UI::setting_value_(SettingItem s) const {
   switch (s) {
     case SettingItem::kLeds:
       return (this->leds_switch_ != nullptr && this->leds_switch_->state)
+                 ? "ON"
+                 : "OFF";
+    case SettingItem::kBatteryBar:
+      // Default to ON when the switch isn't wired (matches draw_status_bar_'s
+      // null-as-bar fallback). Surfaces the actual switch state when bound.
+      return (this->battery_bar_switch_ == nullptr ||
+              this->battery_bar_switch_->state)
                  ? "ON"
                  : "OFF";
     case SettingItem::kClearPairing:
@@ -513,21 +521,60 @@ void ProFlame2UI::draw_status_bar_(display::Display &it, int width) {
 
   it.print(4, 2, this->font_small_, kWhite, "ProFlame");
 
-  // Battery indicator — color tier follows charge level. NaN = no reading yet.
-  char bat_buf[16];
-  Color bat_color = kDim;
-  if (this->battery_sensor_ != nullptr &&
-      !std::isnan(this->battery_sensor_->state)) {
-    int pct = static_cast<int>(std::lround(this->battery_sensor_->state));
+  // Battery indicator — graphical bar by default (gated on
+  // battery_bar_switch_), text fallback when off / unset. Color tier follows
+  // charge level.
+  const bool battery_known =
+      this->battery_sensor_ != nullptr &&
+      !std::isnan(this->battery_sensor_->state);
+  int pct = 0;
+  if (battery_known) {
+    pct = static_cast<int>(std::lround(this->battery_sensor_->state));
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
-    std::snprintf(bat_buf, sizeof(bat_buf), "BAT %d%%", pct);
-    bat_color = battery_color_for_pct(pct);
-  } else {
-    std::snprintf(bat_buf, sizeof(bat_buf), "BAT --");
   }
-  it.print(width / 2, 2, this->font_small_, bat_color,
-           display::TextAlign::TOP_CENTER, bat_buf);
+  Color bat_color = battery_known ? battery_color_for_pct(pct) : kDim;
+
+  const bool bar_mode =
+      this->battery_bar_switch_ == nullptr ||
+      this->battery_bar_switch_->state;
+
+  if (bar_mode && battery_known) {
+    // Battery icon: 28-wide body + 3-wide tip, centered horizontally near the
+    // top of the status bar. The body fills proportional to charge.
+    constexpr int kBarBodyW = 28;
+    constexpr int kBarH = 11;
+    constexpr int kBarTipW = 3;
+    constexpr int kBarTipH = 5;
+    constexpr int kBarY = 3;
+
+    const int total_w = kBarBodyW + kBarTipW;
+    const int x0 = width / 2 - total_w / 2;
+
+    // Outline.
+    it.rectangle(x0, kBarY, kBarBodyW, kBarH, bat_color);
+    // Tip on the right.
+    const int tip_y = kBarY + (kBarH - kBarTipH) / 2;
+    it.filled_rectangle(x0 + kBarBodyW, tip_y, kBarTipW, kBarTipH, bat_color);
+
+    // Fill: 1px inset from the outline so the rim stays visible.
+    const int inner_w = kBarBodyW - 2;
+    int fill_w = (inner_w * pct) / 100;
+    if (fill_w < 0) fill_w = 0;
+    if (fill_w > inner_w) fill_w = inner_w;
+    if (fill_w > 0) {
+      it.filled_rectangle(x0 + 1, kBarY + 1, fill_w, kBarH - 2, bat_color);
+    }
+  } else {
+    char bat_buf[16];
+    if (battery_known) {
+      std::snprintf(bat_buf, sizeof(bat_buf), "BAT %d%%", pct);
+    } else {
+      std::snprintf(bat_buf, sizeof(bat_buf), "BAT --");
+    }
+    it.print(width / 2, 2, this->font_small_, bat_color,
+             display::TextAlign::TOP_CENTER, bat_buf);
+  }
 
   const bool ha_known = (this->status_sensor_ != nullptr);
   const bool ha_ok = ha_known && this->status_sensor_->state;
@@ -553,6 +600,17 @@ void ProFlame2UI::on_settings_click_() {
           this->leds_switch_->turn_off();
         }
         ESP_LOGI(TAG, "Settings: STATUS LEDS → %s", new_state ? "ON" : "OFF");
+      }
+      return;
+    case SettingItem::kBatteryBar:
+      if (this->battery_bar_switch_ != nullptr) {
+        const bool new_state = !this->battery_bar_switch_->state;
+        if (new_state) {
+          this->battery_bar_switch_->turn_on();
+        } else {
+          this->battery_bar_switch_->turn_off();
+        }
+        ESP_LOGI(TAG, "Settings: BATTERY BAR → %s", new_state ? "ON" : "OFF");
       }
       return;
     case SettingItem::kClearPairing:
@@ -626,6 +684,10 @@ void ProFlame2UI::draw_settings_(display::Display &it, int width, int height) {
     Color value_color = kDim;
     if (s == SettingItem::kLeds) {
       const bool on = (this->leds_switch_ != nullptr && this->leds_switch_->state);
+      value_color = on ? kGreen : kDim;
+    } else if (s == SettingItem::kBatteryBar) {
+      const bool on = (this->battery_bar_switch_ == nullptr ||
+                       this->battery_bar_switch_->state);
       value_color = on ? kGreen : kDim;
     } else {
       value_color = selected ? kAccent : kDim;

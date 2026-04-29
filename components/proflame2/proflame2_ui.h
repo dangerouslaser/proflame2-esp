@@ -43,6 +43,11 @@ class ProFlame2UI : public Component {
   // toggles this switch's state. Wire it to the same template switch that
   // gates the WS2812 strip so HA + device share one source of truth.
   void set_leds_switch(switch_::Switch *s) { leds_switch_ = s; }
+  // Optional. When set, the status-bar battery indicator renders as a
+  // graphical bar; when off, falls back to "BAT NN%" text. Same single-
+  // source-of-truth pattern as leds_switch_ — accessible from HA and from
+  // the on-device settings page.
+  void set_battery_bar_switch(switch_::Switch *s) { battery_bar_switch_ = s; }
   void set_font_small(font::Font *f) { font_small_ = f; }
   void set_font_medium(font::Font *f) { font_medium_ = f; }
   void set_font_large(font::Font *f) { font_large_ = f; }
@@ -96,6 +101,7 @@ class ProFlame2UI : public Component {
   // dispatches by item type.
   enum class SettingItem : uint8_t {
     kLeds = 0,
+    kBatteryBar,
     kClearPairing,
     kReboot,
     kBack,
@@ -170,6 +176,9 @@ class ProFlame2UI : public Component {
   // device UI's settings cog (Field::kLeds) to enable/disable the WS2812
   // status LEDs. Single source of truth for both surfaces.
   switch_::Switch *leds_switch_{nullptr};
+  // Optional — same pattern as leds_switch_, gates the status-bar battery
+  // bar (vs. "BAT NN%" text fallback when off / unset).
+  switch_::Switch *battery_bar_switch_{nullptr};
 
   font::Font *font_small_{nullptr};
   font::Font *font_medium_{nullptr};
