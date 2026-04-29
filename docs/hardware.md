@@ -62,19 +62,20 @@ to the ProFlame band.
 
 ### Wiring
 
-```
-ESP32          CC1101
------          ------
-3.3V    <-->   VCC
-GND     <-->   GND
-GPIO21  <-->   CSN  (Chip Select)
-GPIO18  <-->   SCK
-GPIO23  <-->   MOSI
-GPIO19  <-->   MISO  (TX-only would technically work without this)
-GPIO22  <-->   GDO0  (used as TX-FIFO threshold indicator AND the RX edge
-                      pin for on-device pairing — wire it up!)
-              GDO2   (not connected)
-```
+CC1101 pin numbers below match the standard 8-pin SMD breakout (the kind sold
+as "CC1101 433MHz wireless module"). If your board has a different silkscreen,
+match by signal name.
+
+| ESP32 GPIO | CC1101 pin | CC1101 signal | Notes |
+|---|---|---|---|
+| 3.3V | 2 | VCC | |
+| GND | 1 | GND | |
+| GPIO21 | 4 | CSN | Chip Select |
+| GPIO18 | 5 | SCK | SPI clock |
+| GPIO23 | 6 | MOSI | |
+| GPIO19 | 7 | MISO / GDO1 | TX-only would technically work without this |
+| GPIO22 | 3 | GDO0 | TX-FIFO threshold + RX edge pin for on-device pairing — wire it up |
+| — | 8 | GDO2 | not connected |
 
 Adjust the GPIO numbers in `proflame2_fireplace.yaml` if your wiring differs.
 On-device pairing requires `gdo0_pin` to be wired; without it, the receiver is
