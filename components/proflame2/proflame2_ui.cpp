@@ -147,9 +147,14 @@ void ProFlame2UI::on_encoder_delta_(int direction) {
           ProFlame2Component::LearnState::kIdle) {
     return;
   }
+  // Settings page: rotation moves the cursor through the settings list.
+  if (this->view_ == View::kSettings) {
+    this->on_settings_rotate_(direction);
+    return;
+  }
   // Any rotation dismisses the info screen and returns to idle.
-  if (this->show_info_screen_) {
-    this->show_info_screen_ = false;
+  if (this->view_ == View::kInfo) {
+    this->view_ = View::kIdle;
     return;
   }
   // Navigate mode: rotation moves the selection. Edit mode: rotation adjusts
@@ -231,12 +236,24 @@ void ProFlame2UI::on_button_release_() {
     return;
   }
 
+  // Settings page: dispatch click here. Long-press inside settings exits
+  // back to idle (escape hatch from anywhere).
+  if (this->view_ == View::kSettings) {
+    if (long_press) {
+      this->view_ = View::kIdle;
+      ESP_LOGI(TAG, "Settings → exiting (long press)");
+    } else {
+      this->on_settings_click_();
+    }
+    return;
+  }
+
   // Info screen: any short click dismisses it (treats the second click as
   // "confirm/exit"). Long-press is silenced here so users can't accidentally
   // drop into learn-mode from inside info.
-  if (this->show_info_screen_) {
+  if (this->view_ == View::kInfo) {
     if (!long_press) {
-      this->show_info_screen_ = false;
+      this->view_ = View::kIdle;
     }
     return;
   }
@@ -262,9 +279,15 @@ void ProFlame2UI::on_button_release_() {
       return;
     }
     if (this->selected_ == Field::kInfo) {
-      this->show_info_screen_ = true;
+      this->view_ = View::kInfo;
       this->cycle_selection_();
       ESP_LOGI(TAG, "Info menu → opening info screen");
+      return;
+    }
+    if (this->selected_ == Field::kSettings) {
+      this->view_ = View::kSettings;
+      this->selected_setting_ = SettingItem::kLeds;
+      ESP_LOGI(TAG, "Settings → opening settings page");
       return;
     }
     if (this->selected_ == Field::kPower) {
@@ -288,22 +311,6 @@ void ProFlame2UI::on_button_release_() {
       ESP_LOGI(TAG, "Toggle SEC FLAME → %s", !base ? "ON" : "OFF");
       return;
     }
-    if (this->selected_ == Field::kLeds) {
-      // Toggle the HA-visible "Status LEDs Enabled" template switch. The
-      // YAML wires its on_turn_off to immediately kill the LED light, and
-      // the proflame2.power.on_turn_on automation gates LED activation on
-      // the switch's state — so a single toggle here updates both surfaces.
-      if (this->leds_switch_ != nullptr) {
-        const bool new_state = !this->leds_switch_->state;
-        if (new_state) {
-          this->leds_switch_->turn_on();
-        } else {
-          this->leds_switch_->turn_off();
-        }
-        ESP_LOGI(TAG, "Toggle STATUS LEDS → %s", new_state ? "ON" : "OFF");
-      }
-      return;
-    }
     this->ui_state_ = UIState::kEdit;
     ESP_LOGD(TAG, "Edit %s", this->field_label_(this->selected_));
     return;
@@ -324,11 +331,10 @@ bool ProFlame2UI::is_field_navigable_(Field f) const {
   // Letting them pre-dial avoids the "turn fireplace on then immediately
   // walk back to dial things in" friction.
   //
-  // The LED-toggle field only makes sense when a switch is wired. Hide
-  // it entirely on builds without a status-LED strip (plain ESP32, etc).
-  if (f == Field::kLeds && this->leds_switch_ == nullptr) {
-    return false;
-  }
+  // Settings page hosts the LED toggle (and Clear Pairing, Reboot, etc.).
+  // Always reachable — even on builds without a status-LED strip, users may
+  // still want Clear Pairing / Reboot.
+  (void)f;
   return true;
 }
 
@@ -374,12 +380,9 @@ void ProFlame2UI::apply_delta_to_selected_(int direction) {
       this->parent_->set_secondary_flame(direction > 0);
       break;
     case Field::kInfo:
-      // Info is a click-action menu item — rotation is a no-op. Don't fall
-      // through to queue_send.
-      return;
-    case Field::kLeds:
-      // Settings cog toggles via click only — rotation is a no-op so a
-      // stray bump doesn't accidentally turn the strip off.
+    case Field::kSettings:
+      // Click-action menu items — rotation is a no-op. Don't fall through to
+      // queue_send.
       return;
     case Field::kFlame: {
       int v = static_cast<int>(state.flame_level) + direction;
@@ -418,10 +421,7 @@ const char *ProFlame2UI::field_label_(Field f) const {
     case Field::kPower:     return "POWER";
     case Field::kSecondary: return "SEC FLAME";
     case Field::kLight:     return "LIGHT";
-    // kLeds is the only settings entry today; the value column shows
-    // ON/OFF so the label can stay plain. (Avoid unicode glyphs — the
-    // bundled Roboto subset doesn't include them.)
-    case Field::kLeds:      return "LEDs";
+    case Field::kSettings:  return "SETTINGS";
     case Field::kInfo:      return "INFO";
     default:                return "?";
   }
@@ -450,11 +450,33 @@ int ProFlame2UI::field_value_(Field f) const {
     case Field::kLight:
       return state.power ? state.light_level
                          : this->parent_->get_remembered_light_level();
-    case Field::kLeds:
-      return (this->leds_switch_ != nullptr && this->leds_switch_->state) ? 1
-                                                                          : 0;
+    case Field::kSettings:  return 0;
     case Field::kInfo:      return 0;
     default:                return 0;
+  }
+}
+
+const char *ProFlame2UI::setting_label_(SettingItem s) const {
+  switch (s) {
+    case SettingItem::kLeds:         return "LEDs";
+    case SettingItem::kClearPairing: return "CLEAR PAIRING";
+    case SettingItem::kReboot:       return "REBOOT";
+    case SettingItem::kBack:         return "BACK";
+    default:                         return "?";
+  }
+}
+
+const char *ProFlame2UI::setting_value_(SettingItem s) const {
+  switch (s) {
+    case SettingItem::kLeds:
+      return (this->leds_switch_ != nullptr && this->leds_switch_->state)
+                 ? "ON"
+                 : "OFF";
+    case SettingItem::kClearPairing:
+    case SettingItem::kReboot:
+    case SettingItem::kBack:
+    default:
+      return ">>";
   }
 }
 
@@ -473,8 +495,12 @@ void ProFlame2UI::draw(display::Display &it) {
     this->draw_learn_(it, width, height);
     return;
   }
-  if (this->show_info_screen_) {
+  if (this->view_ == View::kInfo) {
     this->draw_info_(it, width, height);
+    return;
+  }
+  if (this->view_ == View::kSettings) {
+    this->draw_settings_(it, width, height);
     return;
   }
   this->draw_idle_(it, width, height);
@@ -512,6 +538,108 @@ void ProFlame2UI::draw_status_bar_(display::Display &it, int width) {
             display::TextAlign::TOP_RIGHT, "%s", ha_text);
 
   it.line(0, 18, width, 18, kDim);
+}
+
+void ProFlame2UI::on_settings_click_() {
+  switch (this->selected_setting_) {
+    case SettingItem::kLeds:
+      // Toggle the HA-visible "Status LEDs Enabled" template switch. Same
+      // single-source-of-truth wiring as the previous in-cog toggle.
+      if (this->leds_switch_ != nullptr) {
+        const bool new_state = !this->leds_switch_->state;
+        if (new_state) {
+          this->leds_switch_->turn_on();
+        } else {
+          this->leds_switch_->turn_off();
+        }
+        ESP_LOGI(TAG, "Settings: STATUS LEDS → %s", new_state ? "ON" : "OFF");
+      }
+      return;
+    case SettingItem::kClearPairing:
+      ESP_LOGI(TAG, "Settings: clearing pairing → reboot");
+      // Component handles NVS-invalidate + safe_reboot internally.
+      this->parent_->clear_learned_state();
+      return;
+    case SettingItem::kReboot:
+      ESP_LOGI(TAG, "Settings: rebooting");
+      App.safe_reboot();
+      return;
+    case SettingItem::kBack:
+      this->view_ = View::kIdle;
+      return;
+    default:
+      return;
+  }
+}
+
+void ProFlame2UI::on_settings_rotate_(int direction) {
+  const int total = static_cast<int>(SettingItem::kCount);
+  int cur = static_cast<int>(this->selected_setting_);
+  cur = (cur + direction + total) % total;
+  this->selected_setting_ = static_cast<SettingItem>(cur);
+  ESP_LOGD(TAG, "Settings cursor: %s",
+           this->setting_label_(this->selected_setting_));
+}
+
+void ProFlame2UI::draw_settings_(display::Display &it, int width, int height) {
+  this->draw_status_bar_(it, width);
+
+  // Title row — orient the user that they're inside Settings, not the main
+  // field list.
+  if (this->font_medium_ != nullptr) {
+    it.print(width / 2, 30, this->font_medium_, kAccent,
+             display::TextAlign::TOP_CENTER, "SETTINGS");
+  }
+
+  // Scrollable list. Same row-spacing math as draw_idle_ so the two pages
+  // feel uniform.
+  const int top = 56;
+  const int bottom_reserve = 14;
+  const int rows = static_cast<int>(SettingItem::kCount);
+  const int row_h = (height - top - bottom_reserve) / rows;
+
+  for (int i = 0; i < rows; i++) {
+    const SettingItem s = static_cast<SettingItem>(i);
+    const bool selected = (s == this->selected_setting_);
+    const int center_y = top + i * row_h + row_h / 2;
+
+    font::Font *text_font = selected ? this->font_medium_ : this->font_small_;
+    if (text_font == nullptr) {
+      text_font = this->font_small_ != nullptr ? this->font_small_
+                                               : this->font_medium_;
+    }
+    if (text_font == nullptr) {
+      continue;
+    }
+
+    if (selected) {
+      it.print(4, center_y, text_font, kAccent,
+               display::TextAlign::CENTER_LEFT, ">");
+    }
+    const Color label_color = selected ? kAccent : kDim;
+    it.print(24, center_y, text_font, label_color,
+             display::TextAlign::CENTER_LEFT, this->setting_label_(s));
+
+    // Value column. ON/OFF for toggles tints green/dim, action arrows tint
+    // accent on the selected row and dim otherwise.
+    const char *value = this->setting_value_(s);
+    Color value_color = kDim;
+    if (s == SettingItem::kLeds) {
+      const bool on = (this->leds_switch_ != nullptr && this->leds_switch_->state);
+      value_color = on ? kGreen : kDim;
+    } else {
+      value_color = selected ? kAccent : kDim;
+    }
+    it.printf(width - 8, center_y, text_font, value_color,
+              display::TextAlign::CENTER_RIGHT, "%s", value);
+  }
+
+  // Hint at the bottom of the screen so users know how to escape.
+  if (this->font_small_ != nullptr) {
+    it.print(width / 2, height - 4, this->font_small_, kDim,
+             display::TextAlign::BOTTOM_CENTER,
+             "long-press: exit");
+  }
 }
 
 void ProFlame2UI::draw_idle_(display::Display &it, int width, int height) {
@@ -570,12 +698,12 @@ void ProFlame2UI::draw_idle_(display::Display &it, int width, int height) {
     const int v = this->field_value_(f);
     switch (f) {
       case Field::kInfo:
+      case Field::kSettings:
         std::snprintf(raw_buf, sizeof(raw_buf), ">>");
         value_color = selected ? kAccent : kDim;
         break;
       case Field::kPower:
       case Field::kSecondary:
-      case Field::kLeds:
         std::snprintf(raw_buf, sizeof(raw_buf), "%s", v ? "ON" : "OFF");
         value_color = v ? kGreen : kDim;
         break;

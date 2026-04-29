@@ -154,6 +154,12 @@ class ProFlame2Component : public Component,
   // while a TX is queued or in flight; idempotent.
   void start_rx_capture();
   void stop_rx_capture();
+
+  // Wipe the learned-state NVS blob and reboot. After the reboot,
+  // load_learned_state_() returns false and the component falls back to the
+  // YAML defaults set via set_serial_number / set_ecc_*. The reboot is the
+  // simplest way to re-apply YAML values without tracking them separately.
+  void clear_learned_state();
   bool is_rx_active() const { return this->rx_active_; }
 
   // ======== Learn-mode (on-device remote pairing) =======================

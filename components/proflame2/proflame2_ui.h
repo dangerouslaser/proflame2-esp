@@ -67,17 +67,38 @@ class ProFlame2UI : public Component {
   };
 
   // Listed in the cycle order the UI will walk through on encoder rotation
-  // in navigate mode. kInfo is a "menu action" entry: clicking it skips edit
-  // mode and opens the info screen directly. Rotation in kEdit on kInfo is a
-  // no-op.
+  // in navigate mode. kInfo and kSettings are "menu action" entries: clicking
+  // them skips edit mode and opens the corresponding overlay screen directly.
+  // Rotation in kEdit on those is a no-op.
   enum class Field : uint8_t {
     kFlame = 0,
     kFan,
     kLight,
     kSecondary,
     kPower,
-    kLeds,    // Settings: WS2812 status-LED enable/disable. Cog-iconned.
+    kSettings,  // Click → opens the settings list page (LEDs, Clear Pairing,
+                // Reboot, ...). Cog-iconned in the row.
     kInfo,
+    kCount,
+  };
+
+  // Top-level UI screen the user is currently looking at. The learn flow has
+  // its own override (drawn whenever parent_->get_learn_state() != kIdle);
+  // this enum covers everything else. Replaces the old show_info_screen_ bool.
+  enum class View : uint8_t {
+    kIdle = 0,    // The main field list (current default).
+    kInfo,        // Full-screen system info page (was: show_info_screen_).
+    kSettings,    // Full-screen scrollable settings list (new in this commit).
+  };
+
+  // Settings-page items. Cycle order matches what users see top-to-bottom on
+  // the LCD. Toggleable items live alongside one-shot actions; on_settings_click
+  // dispatches by item type.
+  enum class SettingItem : uint8_t {
+    kLeds = 0,
+    kClearPairing,
+    kReboot,
+    kBack,
     kCount,
   };
 
@@ -85,6 +106,18 @@ class ProFlame2UI : public Component {
   void on_button_press_();
   void on_button_release_();
   void on_pair_button_change_(bool pressed);
+
+  // Settings-page input handlers. Mirror the main-page versions but operate
+  // on selected_setting_ + the SettingItem enum. Click activates the current
+  // item; rotation moves through the list. Long-press from settings exits
+  // back to idle (so users can always escape if they got there by accident).
+  void on_settings_click_();
+  void on_settings_rotate_(int direction);
+
+  // Top-level click dispatch — picks the right handler based on view_ + the
+  // learn-mode state. Pulled out of on_button_release_ to keep that focused
+  // on press/release timing.
+  void handle_click_(bool long_press);
   // Synchronously turn the backlight back on if it's currently off. Called
   // from input handlers so the screen responds instantly rather than waiting
   // for the next loop() reconciliation.
@@ -101,9 +134,15 @@ class ProFlame2UI : public Component {
   void draw_idle_(display::Display &it, int width, int height);
   void draw_info_(display::Display &it, int width, int height);
   void draw_learn_(display::Display &it, int width, int height);
+  void draw_settings_(display::Display &it, int width, int height);
 
   const char *field_label_(Field f) const;
   int field_value_(Field f) const;
+  const char *setting_label_(SettingItem s) const;
+  // Returns the per-item value-column text. Toggleable items render
+  // "ON"/"OFF"; one-shot actions render an arrow ">>" so the selection
+  // affordance reads as "click me" rather than "edit me".
+  const char *setting_value_(SettingItem s) const;
 
   static constexpr uint32_t kLongPressMs = 1500;
   // Idle time before the backlight goes off. Picked to feel like a phone:
@@ -147,9 +186,12 @@ class ProFlame2UI : public Component {
   bool last_pair_button_state_{false};
   uint32_t pair_button_pressed_at_ms_{0};
 
-  // Info screen visibility. Toggled by clicking the Info menu item; any short
-  // click or encoder rotation while it's visible dismisses it.
-  bool show_info_screen_{false};
+  // Top-level screen the user is on. Replaces show_info_screen_ — kInfo and
+  // kSettings are now full overlays, kIdle is the default field list.
+  View view_{View::kIdle};
+  // Cursor inside the settings list. Reset to kLeds whenever the user enters
+  // the page so they always start from the top.
+  SettingItem selected_setting_{SettingItem::kLeds};
 };
 
 }  // namespace proflame2

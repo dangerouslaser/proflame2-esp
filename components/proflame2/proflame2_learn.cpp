@@ -1,4 +1,5 @@
 #include "proflame2_cc1101.h"
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
@@ -202,6 +203,22 @@ bool ProFlame2Component::save_learned_state_(uint32_t serial, uint8_t c1,
   // loss right after confirm doesn't lose the pairing.
   global_preferences->sync();
   return true;
+}
+
+void ProFlame2Component::clear_learned_state() {
+  // Stamp an explicitly-invalid blob over the existing one. load_learned_state_
+  // checks (version, kFlagValid, CRC) — we fail the flags check immediately,
+  // so a fresh boot falls back to YAML defaults.
+  ProFlame2LearnedState blob{};
+  blob.version = ProFlame2LearnedState::kCurrentVersion;
+  blob.flags = 0;  // ~kFlagValid
+  this->pref_learned_.save(&blob);
+  global_preferences->sync();
+  ESP_LOGI(TAG_LEARN, "Pairing cleared from NVS — rebooting to apply YAML defaults");
+  // Defer the reboot so the log line gets flushed and any in-flight TX repeats
+  // finish gracefully. safe_reboot() runs the proper shutdown path (callbacks,
+  // OTA-pending handling, etc.) instead of a hard reset.
+  App.safe_reboot();
 }
 
 }  // namespace proflame2
