@@ -1,4 +1,5 @@
 #include "proflame2_cc1101.h"
+#include "proflame2_entities.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 
@@ -1099,6 +1100,48 @@ void ProFlame2HeatSecondaryFlameSwitch::setup() {
   if (initial.has_value()) {
     this->publish_state(*initial);
   }
+}
+
+// ===== Entity bridges (formerly inline in proflame2_cc1101.h) =============
+// These trivially forward to ProFlame2Component public setters. They were
+// moved out-of-line when the entity classes were extracted to
+// proflame2_entities.h so the header could forward-declare ProFlame2Component
+// instead of pulling the full type.
+
+void ProFlame2PowerSwitch::write_state(bool state) {
+  this->parent_->set_power(state);
+}
+
+void ProFlame2PilotSwitch::write_state(bool state) {
+  this->parent_->set_pilot_mode(state);
+}
+
+void ProFlame2AuxSwitch::write_state(bool state) {
+  this->parent_->set_aux_power(state);
+}
+
+void ProFlame2SecondaryFlameSwitch::write_state(bool state) {
+  this->parent_->set_secondary_flame(state);
+}
+
+void ProFlame2FlameNumber::control(float value) {
+  this->parent_->set_flame_level(static_cast<uint8_t>(value));
+}
+
+void ProFlame2FanNumber::control(float value) {
+  this->parent_->set_fan_level(static_cast<uint8_t>(value));
+}
+
+void ProFlame2PairButton::press_action() {
+  this->parent_->learn_start();
+}
+
+void ProFlame2PairConfirmButton::press_action() {
+  this->parent_->learn_confirm();
+}
+
+void ProFlame2PairCancelButton::press_action() {
+  this->parent_->learn_cancel();
 }
 
 }  // namespace proflame2

@@ -9,83 +9,19 @@
 #include "esphome/core/hal.h"
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/switch/switch.h"
-#include "esphome/components/light/light_output.h"
 #include "esphome/components/light/light_state.h"
-#include "esphome/components/fan/fan.h"
 #include "esphome/components/number/number.h"
-#include "esphome/components/button/button.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/preferences.h"
+#include "proflame2_cc1101_regs.h"
 #include "proflame2_decode.h"
-#include <algorithm>
 #include <atomic>
-#include <cmath>
-#include <cstring>
+#include <cstdint>
 
 namespace esphome {
 namespace proflame2 {
 
 class ProFlame2Climate;  // forward decl — defined in proflame2_climate.h
-
-// CC1101 Register definitions
-static const uint8_t CC1101_IOCFG2 = 0x00;
-static const uint8_t CC1101_IOCFG1 = 0x01;
-static const uint8_t CC1101_IOCFG0 = 0x02;
-static const uint8_t CC1101_FIFOTHR = 0x03;
-static const uint8_t CC1101_SYNC1 = 0x04;
-static const uint8_t CC1101_SYNC0 = 0x05;
-static const uint8_t CC1101_PKTLEN = 0x06;
-static const uint8_t CC1101_PKTCTRL1 = 0x07;
-static const uint8_t CC1101_PKTCTRL0 = 0x08;
-static const uint8_t CC1101_ADDR = 0x09;
-static const uint8_t CC1101_CHANNR = 0x0A;
-static const uint8_t CC1101_FSCTRL1 = 0x0B;
-static const uint8_t CC1101_FSCTRL0 = 0x0C;
-static const uint8_t CC1101_FREQ2 = 0x0D;
-static const uint8_t CC1101_FREQ1 = 0x0E;
-static const uint8_t CC1101_FREQ0 = 0x0F;
-static const uint8_t CC1101_MDMCFG4 = 0x10;
-static const uint8_t CC1101_MDMCFG3 = 0x11;
-static const uint8_t CC1101_MDMCFG2 = 0x12;
-static const uint8_t CC1101_MDMCFG1 = 0x13;
-static const uint8_t CC1101_MDMCFG0 = 0x14;
-static const uint8_t CC1101_DEVIATN = 0x15;
-
-// State machine / calibration / analog front-end
-static const uint8_t CC1101_MCSM2 = 0x16;
-static const uint8_t CC1101_MCSM1 = 0x17;
-static const uint8_t CC1101_MCSM0 = 0x18;
-static const uint8_t CC1101_FOCCFG = 0x19;
-static const uint8_t CC1101_BSCFG = 0x1A;
-static const uint8_t CC1101_AGCCTRL2 = 0x1B;
-static const uint8_t CC1101_AGCCTRL1 = 0x1C;
-static const uint8_t CC1101_AGCCTRL0 = 0x1D;
-static const uint8_t CC1101_FREND1 = 0x21;
-static const uint8_t CC1101_FREND0 = 0x22;
-static const uint8_t CC1101_FSCAL3 = 0x23;
-static const uint8_t CC1101_FSCAL2 = 0x24;
-static const uint8_t CC1101_FSCAL1 = 0x25;
-static const uint8_t CC1101_FSCAL0 = 0x26;
-static const uint8_t CC1101_TEST2 = 0x2C;
-static const uint8_t CC1101_TEST1 = 0x2D;
-static const uint8_t CC1101_TEST0 = 0x2E;
-
-// Additional registers needed for TX state management
-static const uint8_t CC1101_MARCSTATE = 0x35;  // Status register (read with 0xC0)
-static const uint8_t CC1101_TXBYTES = 0x3A;    // Status register (read with 0xC0)
-static const uint8_t CC1101_PATABLE = 0x3E;    // PA table
-
-// CC1101 Strobe commands
-static const uint8_t CC1101_SRES = 0x30;
-static const uint8_t CC1101_SFSTXON = 0x31;
-static const uint8_t CC1101_SXOFF = 0x32;
-static const uint8_t CC1101_SCAL = 0x33;
-static const uint8_t CC1101_SRX = 0x34;
-static const uint8_t CC1101_STX = 0x35;
-static const uint8_t CC1101_SIDLE        = 0x36;
-static const uint8_t CC1101_SFTX         = 0x3A;  // Flush TX FIFO strobe
-static const uint8_t CC1101_SFRX         = 0x3B;  // Flush RX FIFO strobe
-static const uint8_t CC1101_TXFIFO_BURST = 0x7F;  // TX FIFO burst-write SPI address
 
 // Radio mode — selects which CC1101 register subset is applied. The chip
 // itself has more states (FSTXON, CALIBRATE, etc.); we only ever drive it
@@ -448,157 +384,6 @@ class ProFlame2Component : public Component,
   static constexpr uint16_t TX_REPEAT_GAP_MS = 2;  // tighter gap to keep repeats in one burst
   uint8_t tx_repeat_left_{0};
   uint32_t tx_next_repeat_ms_{0};
-};
-
-// Switch implementations
-class ProFlame2PowerSwitch : public switch_::Switch, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  void write_state(bool state) override {
-    this->parent_->set_power(state);
-  }
-
- protected:
-  ProFlame2Component *parent_;
-};
-
-class ProFlame2PilotSwitch : public switch_::Switch, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  void write_state(bool state) override {
-    this->parent_->set_pilot_mode(state);
-  }
-
- protected:
-  ProFlame2Component *parent_;
-};
-
-class ProFlame2AuxSwitch : public switch_::Switch, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  void write_state(bool state) override {
-    this->parent_->set_aux_power(state);
-  }
-
- protected:
-  ProFlame2Component *parent_;
-};
-
-// Number component implementations
-class ProFlame2FlameNumber : public number::Number, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  void control(float value) override {
-    uint8_t level = static_cast<uint8_t>(value);
-    this->parent_->set_flame_level(level);
-  }
-
- protected:
-  ProFlame2Component *parent_;
-};
-
-class ProFlame2FanNumber : public number::Number, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  void control(float value) override {
-    uint8_t level = static_cast<uint8_t>(value);
-    this->parent_->set_fan_level(level);
-  }
-
- protected:
-  ProFlame2Component *parent_;
-};
-
-// Fireplace light: a brightness-only light. Hardware constraint — the light
-// physically only operates while the burner is running, so we reject control
-// attempts whenever power is off.
-class ProFlame2Light : public light::LightOutput {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  light::LightTraits get_traits() override {
-    auto traits = light::LightTraits();
-    traits.set_supported_color_modes({light::ColorMode::BRIGHTNESS});
-    return traits;
-  }
-  void write_state(light::LightState *state) override;
-
- protected:
-  ProFlame2Component *parent_{nullptr};
-};
-
-class ProFlame2SecondaryFlameSwitch : public switch_::Switch, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-  void write_state(bool state) override {
-    this->parent_->set_secondary_flame(state);
-  }
-
- protected:
-  ProFlame2Component *parent_;
-};
-
-// Persistent number entity used by the climate as "what flame/fan level should
-// the burner run at when the climate auto-activates?". Pure config — no parent
-// callback. The value survives reboots via global_preferences.
-class ProFlame2ConfigNumber : public number::Number, public Component {
- public:
-  void set_default_value(float v) { this->default_value_ = v; }
-  void setup() override;
-  void control(float value) override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
-
- protected:
-  float default_value_{0.0f};
-  ESPPreferenceObject pref_;
-};
-
-// Persistent switch for "should secondary flame be on while heating?". Pure
-// config — restore_mode is honored via switch base class.
-class ProFlame2HeatSecondaryFlameSwitch : public switch_::Switch, public Component {
- public:
-  void setup() override;
-  void write_state(bool state) override { this->publish_state(state); }
-  float get_setup_priority() const override { return setup_priority::DATA; }
-};
-
-// HA-side trigger to start the learn-mode pairing flow without needing to
-// physically press the on-device pair button. T-Embed users still get the
-// on-device encoder long-press shortcut.
-class ProFlame2PairButton : public button::Button, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-
- protected:
-  void press_action() override { this->parent_->learn_start(); }
-
-  ProFlame2Component *parent_{nullptr};
-};
-
-// HA-side commit for a converged learn-mode candidate. Necessary on plain
-// ESP32 boards where there's no on-device encoder long-press to confirm
-// the captured serial + ECC. learn_confirm() is a no-op outside kConverged
-// so calling this at the wrong time is harmless.
-class ProFlame2PairConfirmButton : public button::Button, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-
- protected:
-  void press_action() override { this->parent_->learn_confirm(); }
-
-  ProFlame2Component *parent_{nullptr};
-};
-
-// HA-side abort for an in-flight learn-mode flow. Idempotent — calling it
-// from kIdle is a no-op, so it's safe to leave in HA as a "stop pairing"
-// escape hatch.
-class ProFlame2PairCancelButton : public button::Button, public Component {
- public:
-  void set_parent(ProFlame2Component *parent) { this->parent_ = parent; }
-
- protected:
-  void press_action() override { this->parent_->learn_cancel(); }
-
-  ProFlame2Component *parent_{nullptr};
 };
 
 }  // namespace proflame2
