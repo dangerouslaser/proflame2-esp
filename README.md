@@ -4,6 +4,8 @@ Pure-local control of your **Heat & Glo / SIT Group ProFlame 2** gas fireplace
 from Home Assistant (or HomeKit, via the HA bridge), no cloud — over OOK 314.973
 MHz RF using a CC1101 radio.
 
+<img src="/img/Dashboard.jpg"></img>
+
 ---
 
 ## ⭐ The fast path: LilyGo T-Embed CC1101
