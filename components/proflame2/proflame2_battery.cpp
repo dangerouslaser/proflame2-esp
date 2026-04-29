@@ -1,4 +1,7 @@
 #include "proflame2_battery.h"
+
+#ifdef USE_I2C
+
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -40,3 +43,5 @@ void ProFlame2Battery::dump_config() {
 
 }  // namespace proflame2
 }  // namespace esphome
+
+#endif  // USE_I2C

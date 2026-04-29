@@ -1,5 +1,9 @@
 #pragma once
 
+#include "esphome/core/defines.h"
+
+#ifdef USE_DISPLAY
+
 #include "esphome/core/component.h"
 #include "esphome/core/color.h"
 #include "esphome/components/display/display.h"
@@ -146,3 +150,5 @@ class ProFlame2UI : public Component {
 
 }  // namespace proflame2
 }  // namespace esphome
+
+#endif  // USE_DISPLAY

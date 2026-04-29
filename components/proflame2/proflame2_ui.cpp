@@ -1,4 +1,7 @@
 #include "proflame2_ui.h"
+
+#ifdef USE_DISPLAY
+
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/application.h"
@@ -768,3 +771,5 @@ void ProFlame2UI::draw_learn_(display::Display &it, int width, int height) {
 
 }  // namespace proflame2
 }  // namespace esphome
+
+#endif  // USE_DISPLAY

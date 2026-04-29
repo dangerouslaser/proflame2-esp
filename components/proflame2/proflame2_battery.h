@@ -1,5 +1,9 @@
 #pragma once
 
+#include "esphome/core/defines.h"
+
+#ifdef USE_I2C
+
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/i2c/i2c.h"
@@ -25,3 +29,5 @@ class ProFlame2Battery : public sensor::Sensor,
 
 }  // namespace proflame2
 }  // namespace esphome
+
+#endif  // USE_I2C
