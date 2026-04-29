@@ -15,6 +15,7 @@
 #include "esphome/components/time/real_time_clock.h"
 
 #include "proflame2_cc1101.h"
+#include "proflame2_climate.h"
 
 namespace esphome {
 namespace proflame2 {
@@ -98,6 +99,7 @@ class ProFlame2UI : public Component {
     kLight,
     kSecondary,
     kPower,
+    kClimate,   // Click → opens the climate editor (mode / target temp / fan).
     kSettings,
     kCount,
   };
@@ -108,7 +110,18 @@ class ProFlame2UI : public Component {
   enum class View : uint8_t {
     kIdle = 0,    // The main field list (current default).
     kInfo,        // Full-screen system info page (was: show_info_screen_).
-    kSettings,    // Full-screen scrollable settings list (new in this commit).
+    kSettings,    // Full-screen scrollable settings list.
+    kClimate,     // Full-screen climate editor (mode / target temp / fan).
+  };
+
+  // Climate editor sub-fields — same nav pattern as the main page (cycle in
+  // kNavigate, click-and-edit on the temp). Mode / Fan toggle in place.
+  enum class ClimateField : uint8_t {
+    kMode = 0,
+    kTargetTemp,
+    kFanMode,
+    kBack,
+    kCount,
   };
 
   // Settings-page items. Cycle order matches what users see top-to-bottom on
@@ -139,6 +152,12 @@ class ProFlame2UI : public Component {
   void on_settings_click_();
   void on_settings_rotate_(int direction);
 
+  // Climate-page input handlers — same shape as settings, but the temp
+  // field uses kEdit mode so a follow-up rotation adjusts the value
+  // instead of moving to the next field.
+  void on_climate_click_();
+  void on_climate_rotate_(int direction);
+
   // Top-level click dispatch — picks the right handler based on view_ + the
   // learn-mode state. Pulled out of on_button_release_ to keep that focused
   // on press/release timing.
@@ -161,6 +180,12 @@ class ProFlame2UI : public Component {
   void draw_learn_(display::Display &it, int width, int height);
   void draw_settings_(display::Display &it, int width, int height);
   void draw_clock_(display::Display &it, int width, int height);
+  void draw_climate_(display::Display &it, int width, int height);
+
+  // Climate-page label helpers. Static so they don't pull in any state.
+  static const char *climate_field_label_(ClimateField c);
+  static const char *climate_mode_label_(climate::ClimateMode m);
+  static const char *climate_fan_label_(climate::ClimateFanMode f);
 
   // Effective backlight idle timeout in ms. Reads backlight_timeout_select_
   // when wired ("15s" / "30s" / "1m" / "5m" / "never" → ms / UINT32_MAX),
@@ -241,6 +266,8 @@ class ProFlame2UI : public Component {
   // Cursor inside the settings list. Reset to kLeds whenever the user enters
   // the page so they always start from the top.
   SettingItem selected_setting_{SettingItem::kLeds};
+  // Cursor inside the climate editor. Same reset-on-entry pattern.
+  ClimateField selected_climate_{ClimateField::kMode};
 };
 
 }  // namespace proflame2

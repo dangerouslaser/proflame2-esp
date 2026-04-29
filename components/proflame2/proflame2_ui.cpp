@@ -194,6 +194,12 @@ void ProFlame2UI::on_encoder_delta_(int direction) {
     this->on_settings_rotate_(direction);
     return;
   }
+  // Climate page: rotation moves the cursor or adjusts the temp depending
+  // on the kEdit / kNavigate state.
+  if (this->view_ == View::kClimate) {
+    this->on_climate_rotate_(direction);
+    return;
+  }
   // Any rotation dismisses the info screen and returns to idle.
   if (this->view_ == View::kInfo) {
     this->view_ = View::kIdle;
@@ -288,6 +294,16 @@ void ProFlame2UI::on_button_release_() {
     return;
   }
 
+  // Climate page: same pattern — short click activates the field, long-
+  // press is a no-op. Click on TARGET TEMP toggles edit mode (next rotation
+  // adjusts the value instead of moving the cursor).
+  if (this->view_ == View::kClimate) {
+    if (!long_press) {
+      this->on_climate_click_();
+    }
+    return;
+  }
+
   // Info screen: any short click dismisses it (treats the second click as
   // "confirm/exit"). Long-press is silenced here so users can't accidentally
   // drop into learn-mode from inside info.
@@ -322,6 +338,13 @@ void ProFlame2UI::on_button_release_() {
       this->view_ = View::kSettings;
       this->selected_setting_ = SettingItem::kLeds;
       ESP_LOGI(TAG, "Settings → opening settings page");
+      return;
+    }
+    if (this->selected_ == Field::kClimate) {
+      this->view_ = View::kClimate;
+      this->selected_climate_ = ClimateField::kMode;
+      this->ui_state_ = UIState::kNavigate;
+      ESP_LOGI(TAG, "Climate → opening climate editor");
       return;
     }
     if (this->selected_ == Field::kPower) {
@@ -365,10 +388,16 @@ bool ProFlame2UI::is_field_navigable_(Field f) const {
   // Letting them pre-dial avoids the "turn fireplace on then immediately
   // walk back to dial things in" friction.
   //
+  // Climate field only makes sense if a climate component is wired. Hide it
+  // entirely on builds that omit the climate: block (plain ESP32 builds may
+  // skip it).
+  if (f == Field::kClimate &&
+      (this->parent_ == nullptr || this->parent_->get_climate() == nullptr)) {
+    return false;
+  }
   // Settings page hosts the LED toggle (and Clear Pairing, Reboot, etc.).
   // Always reachable — even on builds without a status-LED strip, users may
   // still want Clear Pairing / Reboot.
-  (void)f;
   return true;
 }
 
@@ -414,8 +443,9 @@ void ProFlame2UI::apply_delta_to_selected_(int direction) {
       this->parent_->set_secondary_flame(direction > 0);
       break;
     case Field::kSettings:
-      // Click-action menu item — rotation is a no-op. Don't fall through to
-      // queue_send.
+    case Field::kClimate:
+      // Click-action menu items — rotation is a no-op. Don't fall through
+      // to queue_send.
       return;
     case Field::kFlame: {
       int v = static_cast<int>(state.flame_level) + direction;
@@ -454,6 +484,7 @@ const char *ProFlame2UI::field_label_(Field f) const {
     case Field::kPower:     return "POWER";
     case Field::kSecondary: return "SEC FLAME";
     case Field::kLight:     return "LIGHT";
+    case Field::kClimate:   return "CLIMATE";
     case Field::kSettings:  return "SETTINGS";
     default:                return "?";
   }
@@ -482,6 +513,7 @@ int ProFlame2UI::field_value_(Field f) const {
     case Field::kLight:
       return state.power ? state.light_level
                          : this->parent_->get_remembered_light_level();
+    case Field::kClimate:   return 0;
     case Field::kSettings:  return 0;
     default:                return 0;
   }
@@ -572,6 +604,10 @@ void ProFlame2UI::draw(display::Display &it) {
   }
   if (this->view_ == View::kSettings) {
     this->draw_settings_(it, width, height);
+    return;
+  }
+  if (this->view_ == View::kClimate) {
+    this->draw_climate_(it, width, height);
     return;
   }
   this->draw_idle_(it, width, height);
@@ -749,6 +785,214 @@ void ProFlame2UI::on_settings_rotate_(int direction) {
            this->setting_label_(this->selected_setting_));
 }
 
+const char *ProFlame2UI::climate_field_label_(ClimateField c) {
+  switch (c) {
+    case ClimateField::kMode:       return "MODE";
+    case ClimateField::kTargetTemp: return "TARGET";
+    case ClimateField::kFanMode:    return "FAN";
+    case ClimateField::kBack:       return "BACK";
+    default:                        return "?";
+  }
+}
+
+const char *ProFlame2UI::climate_mode_label_(climate::ClimateMode m) {
+  switch (m) {
+    case climate::CLIMATE_MODE_OFF:  return "OFF";
+    case climate::CLIMATE_MODE_HEAT: return "HEAT";
+    default:                         return "?";
+  }
+}
+
+const char *ProFlame2UI::climate_fan_label_(climate::ClimateFanMode f) {
+  switch (f) {
+    case climate::CLIMATE_FAN_OFF:    return "OFF";
+    case climate::CLIMATE_FAN_LOW:    return "LOW";
+    case climate::CLIMATE_FAN_MEDIUM: return "MED";
+    case climate::CLIMATE_FAN_HIGH:   return "HIGH";
+    default:                          return "?";
+  }
+}
+
+namespace {
+// Fahrenheit display for parity with the YAML's visual block (60°F / 85°F).
+// Internal climate state stays Celsius — convert at the edge only.
+int c_to_f_round(float c) {
+  return static_cast<int>(std::lround(c * 9.0f / 5.0f + 32.0f));
+}
+}  // namespace
+
+void ProFlame2UI::on_climate_click_() {
+  if (this->parent_ == nullptr) {
+    return;
+  }
+  auto *clim = this->parent_->get_climate();
+  if (clim == nullptr) {
+    this->view_ = View::kIdle;
+    return;
+  }
+
+  switch (this->selected_climate_) {
+    case ClimateField::kMode: {
+      // Toggle HEAT ↔ OFF.
+      const auto next = (clim->mode == climate::CLIMATE_MODE_HEAT)
+                            ? climate::CLIMATE_MODE_OFF
+                            : climate::CLIMATE_MODE_HEAT;
+      auto call = clim->make_call();
+      call.set_mode(next);
+      call.perform();
+      ESP_LOGI(TAG, "Climate: MODE → %s", this->climate_mode_label_(next));
+      return;
+    }
+    case ClimateField::kTargetTemp:
+      // Toggle edit mode. Rotation in kEdit adjusts the target by 0.5 °C
+      // (≈ 1 °F) per detent; click again confirms back to navigate.
+      this->ui_state_ = (this->ui_state_ == UIState::kEdit)
+                            ? UIState::kNavigate
+                            : UIState::kEdit;
+      ESP_LOGD(TAG, "Climate: %s target temp",
+               this->ui_state_ == UIState::kEdit ? "editing" : "confirming");
+      return;
+    case ClimateField::kFanMode: {
+      // Cycle OFF → LOW → MED → HIGH → OFF.
+      climate::ClimateFanMode next = climate::CLIMATE_FAN_OFF;
+      const auto cur =
+          clim->fan_mode.value_or(climate::CLIMATE_FAN_OFF);
+      switch (cur) {
+        case climate::CLIMATE_FAN_OFF:    next = climate::CLIMATE_FAN_LOW;    break;
+        case climate::CLIMATE_FAN_LOW:    next = climate::CLIMATE_FAN_MEDIUM; break;
+        case climate::CLIMATE_FAN_MEDIUM: next = climate::CLIMATE_FAN_HIGH;   break;
+        case climate::CLIMATE_FAN_HIGH:   next = climate::CLIMATE_FAN_OFF;    break;
+        default:                          next = climate::CLIMATE_FAN_OFF;    break;
+      }
+      auto call = clim->make_call();
+      call.set_fan_mode(next);
+      call.perform();
+      ESP_LOGI(TAG, "Climate: FAN → %s", this->climate_fan_label_(next));
+      return;
+    }
+    case ClimateField::kBack:
+      this->ui_state_ = UIState::kNavigate;
+      this->view_ = View::kIdle;
+      return;
+    default:
+      return;
+  }
+}
+
+void ProFlame2UI::on_climate_rotate_(int direction) {
+  if (this->parent_ == nullptr) {
+    return;
+  }
+  auto *clim = this->parent_->get_climate();
+  if (clim == nullptr) {
+    return;
+  }
+
+  // Edit mode on TARGET TEMP — adjust the value rather than moving the cursor.
+  if (this->ui_state_ == UIState::kEdit &&
+      this->selected_climate_ == ClimateField::kTargetTemp) {
+    const auto t = clim->traits();
+    const float min_c = t.get_visual_min_temperature();
+    const float max_c = t.get_visual_max_temperature();
+    const float step = t.get_visual_target_temperature_step();
+    float next = clim->target_temperature + (direction > 0 ? step : -step);
+    if (next < min_c) next = min_c;
+    if (next > max_c) next = max_c;
+    auto call = clim->make_call();
+    call.set_target_temperature(next);
+    call.perform();
+    return;
+  }
+
+  // Navigate mode — cycle through climate fields. Wrap in either direction.
+  const int total = static_cast<int>(ClimateField::kCount);
+  int cur = static_cast<int>(this->selected_climate_);
+  cur = (cur + direction + total) % total;
+  this->selected_climate_ = static_cast<ClimateField>(cur);
+  ESP_LOGD(TAG, "Climate cursor: %s",
+           this->climate_field_label_(this->selected_climate_));
+}
+
+void ProFlame2UI::draw_climate_(display::Display &it, int width, int height) {
+  this->draw_status_bar_(it, width);
+
+  if (this->parent_ == nullptr || this->font_small_ == nullptr) {
+    return;
+  }
+  auto *clim = this->parent_->get_climate();
+  if (clim == nullptr) {
+    return;
+  }
+
+  // Top: current room temperature, big-and-dim. Use HA-side sensor reading
+  // climate already exposes via current_temperature.
+  if (this->font_medium_ != nullptr && !std::isnan(clim->current_temperature)) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%d°F",
+                  c_to_f_round(clim->current_temperature));
+    it.print(width / 2, 24, this->font_medium_, kDim,
+             display::TextAlign::TOP_CENTER, buf);
+  }
+
+  // Sub-fields in a vertical list below. font_small uniformly so we can fit
+  // current temp + 4 rows + back-hint on the 170 px tall panel.
+  const int top = 56;
+  const int bottom_reserve = 6;
+  const int rows = static_cast<int>(ClimateField::kCount);
+  const int row_h = (height - top - bottom_reserve) / rows;
+
+  for (int i = 0; i < rows; i++) {
+    const ClimateField c = static_cast<ClimateField>(i);
+    const bool selected = (c == this->selected_climate_);
+    const bool editing = selected && this->ui_state_ == UIState::kEdit;
+    const int center_y = top + i * row_h + row_h / 2;
+
+    if (selected) {
+      it.print(4, center_y, this->font_small_, kAccent,
+               display::TextAlign::CENTER_LEFT, ">");
+    }
+    Color label_color = selected ? kAccent : kDim;
+    it.print(24, center_y, this->font_small_, label_color,
+             display::TextAlign::CENTER_LEFT, this->climate_field_label_(c));
+
+    // Right-side value column, per-field formatting.
+    char buf[16];
+    Color value_color = kWhite;
+    switch (c) {
+      case ClimateField::kMode:
+        std::snprintf(buf, sizeof(buf), "%s",
+                      this->climate_mode_label_(clim->mode));
+        value_color = (clim->mode == climate::CLIMATE_MODE_HEAT) ? kGreen : kDim;
+        break;
+      case ClimateField::kTargetTemp: {
+        const int f = c_to_f_round(clim->target_temperature);
+        if (editing) {
+          std::snprintf(buf, sizeof(buf), "[%d°F]", f);
+          value_color = kAccent;
+        } else {
+          std::snprintf(buf, sizeof(buf), "%d°F", f);
+        }
+        break;
+      }
+      case ClimateField::kFanMode: {
+        const auto m = clim->fan_mode.value_or(climate::CLIMATE_FAN_OFF);
+        std::snprintf(buf, sizeof(buf), "%s", this->climate_fan_label_(m));
+        value_color = (m == climate::CLIMATE_FAN_OFF) ? kDim : kWhite;
+        break;
+      }
+      case ClimateField::kBack:
+        std::snprintf(buf, sizeof(buf), ">>");
+        value_color = selected ? kAccent : kDim;
+        break;
+      default:
+        std::snprintf(buf, sizeof(buf), "?");
+        break;
+    }
+    it.printf(width - 8, center_y, this->font_small_, value_color,
+              display::TextAlign::CENTER_RIGHT, "%s", buf);
+  }
+}
+
 void ProFlame2UI::draw_clock_(display::Display &it, int width, int height) {
   if (this->time_ == nullptr) {
     return;
@@ -917,6 +1161,7 @@ void ProFlame2UI::draw_idle_(display::Display &it, int width, int height) {
     const int v = this->field_value_(f);
     switch (f) {
       case Field::kSettings:
+      case Field::kClimate:
         std::snprintf(raw_buf, sizeof(raw_buf), ">>");
         value_color = selected ? kAccent : kDim;
         break;

@@ -133,6 +133,9 @@ class ProFlame2Component : public Component,
   // Climate entity (optional). Lets the parent notify climate of manual
   // power/mode changes so it can re-publish action.
   void set_climate(ProFlame2Climate *clim) { this->climate_ = clim; }
+  // Read-only access for the on-device UI's climate editor. Null is fine —
+  // the UI hides the climate field on builds without a climate block.
+  ProFlame2Climate *get_climate() const { return this->climate_; }
 
   // Read-only diagnostic text sensors that surface the active pairing
   // identity (serial, ECC constants, source) to Home Assistant. All three
