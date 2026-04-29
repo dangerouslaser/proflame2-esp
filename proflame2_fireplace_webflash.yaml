@@ -1,0 +1,127 @@
+# =============================================================================
+# Generic ESP32 + CC1101 breakout — web-flash variant.
+#
+# Mirror of proflame2_tembed_webflash.yaml's pattern, but for a plain ESP32
+# dev board (e.g. ESP32-WROOM-32) wired to a generic CC1101 breakout. Same
+# secrets-stripped story:
+#
+#   - WiFi creds       → Improv-WiFi over USB serial.
+#   - API encryption   → unique per-build key, surfaced on the Pages flasher.
+#   - OTA password     → unique per-build, same flow.
+#   - Pairing identity → no serial/ECC; user pairs from HA after first boot
+#                        via the Pair Remote / Confirm Pairing buttons.
+#
+# Wiring assumed (matches docs/hardware.md table):
+#   ESP32 GPIO   CC1101 module
+#   3.3V       → VCC (pin 2)
+#   GND        → GND (pin 1)
+#   GPIO21     → CSN (pin 4)
+#   GPIO18     → SCK (pin 5)
+#   GPIO23     → MOSI (pin 6)
+#   GPIO19     → MISO (pin 7)
+#   GPIO22     → GDO0 (pin 3)
+#
+# If your wiring differs, OTA-reflash with proflame2_fireplace.yaml + your
+# own secrets.yaml, or fork this YAML and tweak cs_pin / gdo0_pin.
+# =============================================================================
+
+packages:
+  base: !include proflame2_common.yaml
+
+esphome:
+  name: proflame2-fireplace
+  friendly_name: ProFlame2 Fireplace Remote
+
+esp32:
+  board: esp32dev
+  cpu_frequency: 240MHz
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+    version: recommended
+
+logger:
+
+# Shared per-build credentials with the T-Embed webflash build (same CI run
+# stamps both into the page from the same generated values).
+api:
+  encryption:
+    key: !secret webflash_api_key
+
+ota:
+  - platform: esphome
+    password: !secret webflash_ota_password
+
+wifi:
+  ap:
+    ssid: "ProFlame2-Fireplace Setup"
+
+captive_portal:
+
+improv_serial:
+
+spi:
+  clk_pin: GPIO18
+  miso_pin: GPIO19
+  mosi_pin: GPIO23
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [proflame2]
+
+proflame2:
+  cs_pin: GPIO21
+  gdo0_pin: GPIO22
+
+sensor:
+  - platform: homeassistant
+    id: room_temp
+    entity_id: sensor.fireplace_room_temperature
+    filters:
+      - lambda: 'return (x - 32.0f) * 5.0f / 9.0f;'
+  - platform: uptime
+    type: seconds
+    name: "Uptime"
+  - platform: internal_temperature
+    name: "Internal Temperature"
+  - platform: wifi_signal
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: status
+    name: "Status"
+
+button:
+  - platform: restart
+    name: "Restart"
+    entity_category: config
+  - platform: factory_reset
+    name: "Factory Reset"
+    entity_category: config
+  - platform: safe_mode
+    name: "Safe Mode"
+    entity_category: config
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      entity_category: diagnostic
+    ssid:
+      name: "Connected SSID"
+      entity_category: diagnostic
+    mac_address:
+      name: "Mac Address"
+      entity_category: diagnostic
+
+web_server:
+  port: 80
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time

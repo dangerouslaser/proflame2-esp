@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ProFlame 2 — Web flasher</title>
   <meta name="description"
-    content="Flash a LilyGo T-Embed CC1101 with the ProFlame 2 ESPHome firmware directly from your browser. No CLI, no Docker." />
+    content="Flash a LilyGo T-Embed CC1101 or a generic ESP32 + CC1101 breakout with the ProFlame 2 ESPHome firmware directly from your browser. No CLI, no Docker." />
   <link rel="stylesheet" href="style.css" />
   <script type="module"
     src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
@@ -15,8 +15,9 @@
     <header>
       <h1>ProFlame 2 ESPHome</h1>
       <p class="lede">
-        Flash your LilyGo T-Embed CC1101 directly from this page.
-        No command line, no Docker, no ESPHome install.
+        Flash your hardware directly from this page. No command line, no
+        Docker, no ESPHome install. Two paths below: a LilyGo T-Embed
+        CC1101 (recommended) or a generic ESP32 + CC1101 breakout.
       </p>
     </header>
 
@@ -69,6 +70,62 @@
         prompt. Enter your network SSID and password — the firmware uses
         <a href="https://www.improv-wifi.com/">Improv-Wi-Fi</a> over the same
         USB connection to receive them. No SSID is hard-coded into the firmware.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Generic ESP32 + CC1101 breakout</h2>
+      <p>
+        For makers who already have an ESP32 dev board (e.g. ESP32-WROOM-32)
+        and a CC1101 433&nbsp;MHz breakout module on hand. No LCD, no
+        encoder, no battery — just the radio + Home Assistant entities.
+      </p>
+
+      <p class="hint" style="margin-top: 0;">
+        This build assumes the standard wiring documented in
+        <a href="https://github.com/dangerouslaser/proflame2-esp/blob/main/docs/hardware.md#b-generic-esp32--cc1101-breakout">docs/hardware.md</a>:
+        <code>GPIO21</code> CSN, <code>GPIO18</code> SCK, <code>GPIO23</code> MOSI,
+        <code>GPIO19</code> MISO, <code>GPIO22</code> GDO0. Different
+        wiring? OTA-reflash later with your own YAML.
+      </p>
+
+      <ol class="steps">
+        <li>Wire the CC1101 to your ESP32 per the table above.</li>
+        <li>Plug the ESP32 dev board into this computer with USB.</li>
+        <li>Click <strong>Install</strong> below.</li>
+        <li>Pick the serial port matching your USB-to-serial chip
+            (often <em>CP210x</em>, <em>CH340</em>, or similar).</li>
+        <li>Wait ~60 s — the page does the rest, then prompts for your Wi-Fi.</li>
+        <li>Pair from Home Assistant: press the <em>Pair Remote</em> button,
+            press your OEM remote a couple times, then <em>Confirm Pairing</em>.</li>
+      </ol>
+
+      <div class="install-row">
+        <esp-web-install-button manifest="manifest-fireplace.json">
+          <button slot="activate" class="primary">Install on ESP32 + CC1101</button>
+          <span slot="unsupported" class="warn">
+            Web Serial API isn't available in this browser. Use Chrome or Edge
+            on a desktop computer.
+          </span>
+          <span slot="not-allowed" class="warn">
+            Web Serial blocked — check your browser's site settings or try a
+            different browser.
+          </span>
+        </esp-web-install-button>
+      </div>
+
+      <p class="hint">
+        Same Improv-Wi-Fi handoff as the T-Embed build. Same credentials
+        below — both web-flash builds in a given CI run share an API key
+        and OTA password.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Credentials for Home Assistant</h2>
+      <p class="hint" style="margin-top: 0;">
+        Use these regardless of which board you flashed (both builds in a
+        given CI run share them).
       </p>
 
       <div class="key-box">
@@ -144,12 +201,16 @@
 
     <section class="card secondary">
       <h2>What you get after flashing</h2>
+      <p class="hint" style="margin-top: 0;">
+        Both builds ship the full Home Assistant entity set; the T-Embed
+        adds the on-board UI features.
+      </p>
       <ul class="features">
-        <li><strong>Home Assistant entity set</strong> — climate (HEAT/OFF thermostat with fan modes), light (1–6 brightness as 0–100 %), all the proflame2 controls, plus a diagnostic block showing your captured serial &amp; ECC.</li>
-        <li><strong>Standalone LCD UI</strong> — drives the fireplace from the device with no Wi-Fi or HA dependency. Idle backlight dim, settings cog, info screen.</li>
-        <li><strong>Fire-effect LED strip</strong> — bottom-edge WS2812 with red/orange/yellow flicker that runs while the burner is on. Killable from HA or the device.</li>
-        <li><strong>Battery monitoring</strong> via the on-board BQ27220 fuel gauge.</li>
-        <li><strong>On-device pairing</strong> — capture your OEM remote's serial &amp; ECC directly through the encoder UI; no SDR needed.</li>
+        <li><strong>Home Assistant entity set (both)</strong> — climate (HEAT/OFF thermostat with fan modes), light (1–6 brightness as 0–100 %), all the proflame2 controls, plus a diagnostic block showing your captured serial &amp; ECC.</li>
+        <li><strong>HA-driven pairing (both)</strong> — capture your OEM remote's serial &amp; ECC by pressing <em>Pair Remote</em> in HA, then <em>Confirm Pairing</em>; no SDR needed.</li>
+        <li><strong>Standalone LCD UI (T-Embed only)</strong> — drives the fireplace from the device with no Wi-Fi or HA dependency. Idle backlight dim, settings cog, info screen, on-device pairing via long-press encoder.</li>
+        <li><strong>Fire-effect LED strip (T-Embed only)</strong> — bottom-edge WS2812 with red/orange/yellow flicker that runs while the burner is on. Killable from HA or the device.</li>
+        <li><strong>Battery monitoring (T-Embed only)</strong> via the on-board BQ27220 fuel gauge.</li>
       </ul>
     </section>
 
