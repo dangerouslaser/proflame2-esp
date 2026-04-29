@@ -242,6 +242,11 @@ class ProFlame2Component : public Component,
  protected:
   void reset_cc1101();
   void configure_cc1101();
+  // Equivalent to the radio-init sequence in setup(): SRES → configure_cc1101
+  // → PA-table write. Use after learn-mode (which leaves RX-only registers
+  // — FOCCFG, AGCCTRL2/1/0 — at envelope-detector values that the TX table
+  // doesn't reset) so the next transmit is on a clean register set.
+  void reinit_radio_();
 
   uint8_t calculate_checksum(uint8_t cmd_byte, uint8_t c_const, uint8_t d_const);
   uint8_t calculate_parity(uint16_t data);

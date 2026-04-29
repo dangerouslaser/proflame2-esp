@@ -124,25 +124,7 @@ void ProFlame2Component::setup() {
     this->gdo0_pin_->pin_mode(gpio::FLAG_INPUT);
   }
 
-  this->reset_cc1101();
-
-#ifdef USE_ESP_IDF
-  vTaskDelay(pdMS_TO_TICKS(10));
-#else
-  delay(10);
-#endif
-
-  this->configure_cc1101();
-
-  // PA table for OOK (OFF / ON)
-  uint8_t pa_table[8] = {0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-  ESP_LOGD(TAG, "Setting PA table for OOK");
-  this->enable();
-  this->write_byte(CC1101_PATABLE | 0x40);
-  for (int i = 0; i < 8; i++) {
-    this->write_byte(pa_table[i]);
-  }
-  this->disable();
+  this->reinit_radio_();
 
   // NVS-backed learned state (serial + ECC) — overrides YAML when valid.
   this->load_learned_state_();
@@ -339,6 +321,30 @@ void ProFlame2Component::configure_cc1101() {
 
   this->radio_mode_ = RadioMode::kTx;
   ESP_LOGD(TAG, "CC1101 configured for 314.973 MHz OOK at 2400 baud (TX)");
+}
+
+void ProFlame2Component::reinit_radio_() {
+  this->reset_cc1101();
+
+#ifdef USE_ESP_IDF
+  vTaskDelay(pdMS_TO_TICKS(10));
+#else
+  delay(10);
+#endif
+
+  this->configure_cc1101();
+
+  // PA table for OOK (OFF / ON). SRES wipes the per-index PA values to the
+  // chip default (0xC0 at index 0), so we need to re-write our two-entry
+  // table any time we SRES.
+  uint8_t pa_table[8] = {0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  ESP_LOGD(TAG, "Setting PA table for OOK");
+  this->enable();
+  this->write_byte(CC1101_PATABLE | 0x40);
+  for (int i = 0; i < 8; i++) {
+    this->write_byte(pa_table[i]);
+  }
+  this->disable();
 }
 
 void ProFlame2Component::set_radio_mode_(RadioMode mode) {

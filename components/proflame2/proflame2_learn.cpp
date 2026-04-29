@@ -66,6 +66,14 @@ bool ProFlame2Component::learn_confirm() {
   this->ecc_d2_ = c.d2 & 0x0F;
   this->config_source_ = ConfigSource::kNvsLearned;
 
+  // Bring the CC1101 back to the same clean register set setup() leaves it
+  // in. Without this, the next TX inherits the RX-mode FOCCFG / AGCCTRL2/1/0
+  // values from learn-mode (the TX table doesn't write those four regs), and
+  // even though MARCSTATE looks correct the chip transmits modulation the
+  // fireplace can't decode — the symptom that previously required a reboot
+  // to clear.
+  this->reinit_radio_();
+
   this->learn_state_ = LearnState::kPersisted;
   this->learn_persisted_ms_ = millis();
   this->publish_diagnostic_sensors_();
