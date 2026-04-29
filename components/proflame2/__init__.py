@@ -240,6 +240,44 @@ CONFIG_SCHEMA = cv.Schema(
 ).extend(spi.spi_device_schema())
 
 
+async def _add_switch(parent, conf, parent_setter):
+    """Register a proflame2 switch entity, set its parent, and bind it
+    to the parent component via the supplied setter (e.g.
+    ``var.set_power_switch``)."""
+    sw = cg.new_Pvariable(conf[CONF_ID])
+    await cg.register_component(sw, conf)
+    await switch.register_switch(sw, conf)
+    cg.add(sw.set_parent(parent))
+    cg.add(parent_setter(sw))
+    return sw
+
+
+async def _add_number(parent, conf, parent_setter, *, min_value, max_value, step, default=None):
+    """Register a proflame2 number entity. ``parent_setter`` may be None
+    for config-only numbers (e.g. ProFlame2ConfigNumber) that don't have
+    a parent back-reference and aren't bound back to the parent."""
+    num = cg.new_Pvariable(conf[CONF_ID])
+    await cg.register_component(num, conf)
+    await number.register_number(
+        num, conf, min_value=min_value, max_value=max_value, step=step
+    )
+    if default is not None:
+        cg.add(num.set_default_value(default))
+    if parent_setter is not None:
+        cg.add(num.set_parent(parent))
+        cg.add(parent_setter(num))
+    return num
+
+
+async def _add_button(parent, conf):
+    """Register a proflame2 button entity bound only to the parent."""
+    btn = cg.new_Pvariable(conf[CONF_ID])
+    await cg.register_component(btn, conf)
+    await button.register_button(btn, conf)
+    cg.add(btn.set_parent(parent))
+    return btn
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -279,69 +317,35 @@ async def to_code(config):
     
     # Configure power switch
     if CONF_POWER in config:
-        conf = config[CONF_POWER]
-        sw = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(sw, conf)
-        await switch.register_switch(sw, conf)
-        cg.add(sw.set_parent(var))
-        cg.add(var.set_power_switch(sw))
-    
+        await _add_switch(var, config[CONF_POWER], var.set_power_switch)
+
     # Configure pilot switch
     if CONF_PILOT in config:
-        conf = config[CONF_PILOT]
-        sw = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(sw, conf)
-        await switch.register_switch(sw, conf)
-        cg.add(sw.set_parent(var))
-        cg.add(var.set_pilot_switch(sw))
-    
+        await _add_switch(var, config[CONF_PILOT], var.set_pilot_switch)
+
     # Configure aux switch
     if CONF_AUX in config:
-        conf = config[CONF_AUX]
-        sw = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(sw, conf)
-        await switch.register_switch(sw, conf)
-        cg.add(sw.set_parent(var))
-        cg.add(var.set_aux_switch(sw))
-    
+        await _add_switch(var, config[CONF_AUX], var.set_aux_switch)
+
     # Configure secondary flame switch
     if CONF_SECONDARY_FLAME in config:
-        conf = config[CONF_SECONDARY_FLAME]
-        sw = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(sw, conf)
-        await switch.register_switch(sw, conf)
-        cg.add(sw.set_parent(var))
-        cg.add(var.set_secondary_flame_switch(sw))
+        await _add_switch(
+            var, config[CONF_SECONDARY_FLAME], var.set_secondary_flame_switch
+        )
 
     # Configure flame number
     if CONF_FLAME in config:
-        conf = config[CONF_FLAME]
-        num = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(num, conf)
-        await number.register_number(
-            num,
-            conf,
-            min_value=0,
-            max_value=6,
-            step=1,
+        await _add_number(
+            var, config[CONF_FLAME], var.set_flame_number,
+            min_value=0, max_value=6, step=1,
         )
-        cg.add(num.set_parent(var))
-        cg.add(var.set_flame_number(num))
-    
+
     # Configure fan number
     if CONF_FAN in config:
-        conf = config[CONF_FAN]
-        num = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(num, conf)
-        await number.register_number(
-            num,
-            conf,
-            min_value=0,
-            max_value=6,
-            step=1,
+        await _add_number(
+            var, config[CONF_FAN], var.set_fan_number,
+            min_value=0, max_value=6, step=1,
         )
-        cg.add(num.set_parent(var))
-        cg.add(var.set_fan_number(num))
     
     # Configure light entity (brightness 0–100% maps to fireplace levels 1–6)
     if CONF_LIGHT in config:
@@ -353,25 +357,13 @@ async def to_code(config):
         cg.add(var.set_light_state(light_state))
 
     if CONF_PAIR in config:
-        conf = config[CONF_PAIR]
-        btn = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(btn, conf)
-        await button.register_button(btn, conf)
-        cg.add(btn.set_parent(var))
+        await _add_button(var, config[CONF_PAIR])
 
     if CONF_PAIR_CONFIRM in config:
-        conf = config[CONF_PAIR_CONFIRM]
-        btn = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(btn, conf)
-        await button.register_button(btn, conf)
-        cg.add(btn.set_parent(var))
+        await _add_button(var, config[CONF_PAIR_CONFIRM])
 
     if CONF_PAIR_CANCEL in config:
-        conf = config[CONF_PAIR_CANCEL]
-        btn = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(btn, conf)
-        await button.register_button(btn, conf)
-        cg.add(btn.set_parent(var))
+        await _add_button(var, config[CONF_PAIR_CANCEL])
 
     # Diagnostic text sensors — populated by the C++ component at setup() once
     # the NVS-vs-YAML resolution is done, and re-published on a successful
@@ -390,26 +382,20 @@ async def to_code(config):
     # the climate so we can hand the references in at climate construction.
     heat_flame_num = None
     if CONF_HEAT_FLAME_LEVEL in config:
-        conf = config[CONF_HEAT_FLAME_LEVEL]
-        num = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(num, conf)
-        await number.register_number(
-            num, conf, min_value=1, max_value=6, step=1
+        heat_flame_num = await _add_number(
+            var, config[CONF_HEAT_FLAME_LEVEL], parent_setter=None,
+            min_value=1, max_value=6, step=1, default=6.0,
         )
-        cg.add(num.set_default_value(6.0))
-        heat_flame_num = num
 
     heat_fan_num = None
     if CONF_HEAT_FAN_LEVEL in config:
-        conf = config[CONF_HEAT_FAN_LEVEL]
-        num = cg.new_Pvariable(conf[CONF_ID])
-        await cg.register_component(num, conf)
-        await number.register_number(
-            num, conf, min_value=0, max_value=6, step=1
+        heat_fan_num = await _add_number(
+            var, config[CONF_HEAT_FAN_LEVEL], parent_setter=None,
+            min_value=0, max_value=6, step=1, default=0.0,
         )
-        cg.add(num.set_default_value(0.0))
-        heat_fan_num = num
 
+    # Config-only switch — no parent-back-reference and no parent setter.
+    # Stashed for the climate to pick up below.
     heat_secondary_sw = None
     if CONF_HEAT_SECONDARY_FLAME in config:
         conf = config[CONF_HEAT_SECONDARY_FLAME]
