@@ -14,6 +14,12 @@
 # Adjust the cs_pin / gdo0_pin / spi: section below to match your wiring.
 # =============================================================================
 
+# Shared proflame2 entity block (entity names, climate, heat-mode config,
+# diagnostic sensors) lives in proflame2_common.yaml so both example
+# configs stay in sync. Per-board pin map and serial/ECC stay below.
+packages:
+  base: !include proflame2_common.yaml
+
 esphome:
   name: living-room-fireplace-remote
   friendly_name: Living Room Fireplace Remote
@@ -55,8 +61,11 @@ external_components:
   - source: github://dangerouslaser/proflame2-esp@main
     components: [proflame2]
 
+# Per-board pin map + pairing identity. The shared entity block (power,
+# pilot, aux, flame, fan, light, secondary_flame, pair, pair_confirm,
+# pair_cancel, the diagnostic sensors, heat-mode entities, climate) is
+# pulled in via packages: at the top of this file.
 proflame2:
-  id: fireplace
   cs_pin: GPIO21
   gdo0_pin: GPIO22
   serial_number: !secret fireplace_remote_serial_number
@@ -67,89 +76,6 @@ proflame2:
     d1: 0x0E
     c2: 0x0B
     d2: 0x07
-
-  power:
-    name: "Power"
-    icon: "mdi:fireplace"
-
-  pilot:
-    name: "Pilot Mode"
-    icon: "mdi:fire"
-    entity_category: config
-
-  aux:
-    name: "Aux Power"
-    icon: "mdi:power-plug"
-
-  flame:
-    name: "Flame Height"
-    icon: "mdi:fire"
-    mode: slider
-
-  fan:
-    name: "Fan Speed"
-    icon: "mdi:fan"
-    mode: slider
-
-  light:
-    name: "Fireplace Light"
-    icon: "mdi:lightbulb"
-
-  secondary_flame:
-    name: "Secondary Flame"
-    icon: "mdi:fire"
-
-  # HA-side pairing controls. Three explicit clicks complete a pairing:
-  #   1. Press OEM remote button (puts the fireplace into learn-mode).
-  #   2. "Pair Remote" arms the receiver.
-  #   3. Press OEM remote 2-3 more times so 3 packets agree.
-  #   4. "Confirm Pairing" commits the captured serial + ECC to NVS.
-  # Requires gdo0_pin wired up — without it, RX is unavailable.
-  pair:
-    name: "Pair Remote"
-    icon: "mdi:remote"
-  pair_confirm:
-    name: "Confirm Pairing"
-    icon: "mdi:check-circle-outline"
-  pair_cancel:
-    name: "Cancel Pairing"
-    icon: "mdi:close-circle-outline"
-
-  # Read-only diagnostic exports of the active pairing identity. Populated
-  # at boot from whichever source won (NVS or YAML); refreshed automatically
-  # on a successful learn-mode commit. Surfaces in HA's Diagnostics panel.
-  serial_number_sensor:
-    name: "Serial Number"
-  ecc_constants_sensor:
-    name: "ECC Constants"
-  pairing_source_sensor:
-    name: "Pairing Source"
-
-  # Persistent heat-mode behavior (applied each time the climate auto-activates
-  # the burner). Tweak at runtime in HA — no reflash needed.
-  heat_flame_level:
-    name: "Heat Flame Level"
-    icon: "mdi:fire"
-    entity_category: config
-  heat_fan_level:
-    name: "Heat Fan Level"
-    icon: "mdi:fan"
-    entity_category: config
-  heat_secondary_flame:
-    name: "Heat Secondary Flame"
-    icon: "mdi:fire"
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_OFF
-
-  climate:
-    name: "Fireplace"
-    sensor: room_temp
-    visual:
-      min_temperature: 60°F
-      max_temperature: 85°F
-      temperature_step:
-        target_temperature: 0.5°F
-        current_temperature: 0.1°F
 
 sensor:
   # Climate's current_temperature source. Use an HA template helper as

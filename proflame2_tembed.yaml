@@ -17,6 +17,13 @@
 #   Encoder:   A=4    B=5      BTN=0    USER_KEY=6
 # =============================================================================
 
+# Shared proflame2 entity block (entity names, climate, heat-mode config,
+# diagnostic sensors) lives in proflame2_common.yaml so both example
+# configs stay in sync. T-Embed-specific pins, power-switch automations,
+# and the on-device UI are deep-merged in below.
+packages:
+  base: !include proflame2_common.yaml
+
 esphome:
   name: proflame2-tembed
   friendly_name: ProFlame2 T-Embed Remote
@@ -163,9 +170,7 @@ display:
       id(ui)->draw(it);
 
 external_components:
-  # Pull the proflame2 component from the T-Embed feature branch on the fork.
-  # Switch to @main once the branch is merged.
-  - source: github://dangerouslaser/proflame2-esp@feature/tembed
+  - source: github://dangerouslaser/proflame2-esp@main
     components: [proflame2]
   # For local development against an editable component checkout, replace the
   # above with:
@@ -174,8 +179,10 @@ external_components:
   #     path: /config/components
   #   components: [proflame2]
 
+# T-Embed-specific pin map, pairing seed, and overrides on top of the shared
+# entity block from proflame2_common.yaml. The deep-merge keeps name/icon
+# from common and adds the T-Embed-only id + LED-strip automations.
 proflame2:
-  id: fireplace
   cs_pin: GPIO12
   gdo0_pin: GPIO3
   # T-Embed CC1101 board quirks (verified against the official LilyGo example
@@ -187,9 +194,9 @@ proflame2:
   pwr_en_pin: GPIO15
   ant_sw0_pin: GPIO48
   ant_sw1_pin: GPIO47
-  # Pre-pairing seed values — ignored at runtime once the on-device learn-mode
-  # (commit 7) writes a learned blob to NVS. For a fresh device, leave these
-  # at any safe default and pair via the encoder UI on first boot.
+  # Pre-pairing seed values — ignored at runtime once on-device learn-mode
+  # writes a learned blob to NVS. For a fresh device, leave these at any safe
+  # default and pair via the encoder UI on first boot.
   serial_number: !secret fireplace_remote_serial_number
   ecc_constants:
     c1: 0x08
@@ -199,8 +206,6 @@ proflame2:
 
   power:
     id: fireplace_power
-    name: "Power"
-    icon: "mdi:fireplace"
     # Animate the bottom-edge LED strip with the addressable fire effect
     # whenever the fireplace is on AND the user hasn't disabled the strip
     # via the "Status LEDs Enabled" toggle (HA or device UI cog).
@@ -216,81 +221,6 @@ proflame2:
     on_turn_off:
       - light.turn_off:
           id: status_leds
-
-  pilot:
-    name: "Pilot Mode"
-    icon: "mdi:fire"
-    entity_category: config
-
-  aux:
-    name: "Aux Power"
-    icon: "mdi:power-plug"
-
-  flame:
-    name: "Flame Height"
-    icon: "mdi:fire"
-    mode: slider
-
-  fan:
-    name: "Fan Speed"
-    icon: "mdi:fan"
-    mode: slider
-
-  light:
-    name: "Fireplace Light"
-    icon: "mdi:lightbulb"
-
-  secondary_flame:
-    name: "Secondary Flame"
-    icon: "mdi:fire"
-
-  # HA-side pairing controls. T-Embed users can also drive the whole flow
-  # from the on-device encoder (long-press to start, long-press to confirm
-  # at convergence, short-press to cancel) — these HA buttons are equivalent
-  # for users who'd rather pair from the dashboard.
-  pair:
-    name: "Pair Remote"
-    icon: "mdi:remote"
-  pair_confirm:
-    name: "Confirm Pairing"
-    icon: "mdi:check-circle-outline"
-  pair_cancel:
-    name: "Cancel Pairing"
-    icon: "mdi:close-circle-outline"
-
-  # Read-only diagnostic exports of the active pairing identity. Populated
-  # at boot from whichever source won (NVS or YAML); refreshed automatically
-  # on a successful learn-mode commit. Surfaces in HA's Diagnostics panel.
-  serial_number_sensor:
-    name: "Serial Number"
-  ecc_constants_sensor:
-    name: "ECC Constants"
-  pairing_source_sensor:
-    name: "Pairing Source"
-
-  heat_flame_level:
-    name: "Heat Flame Level"
-    icon: "mdi:fire"
-    entity_category: config
-  heat_fan_level:
-    name: "Heat Fan Level"
-    icon: "mdi:fan"
-    entity_category: config
-  heat_secondary_flame:
-    name: "Heat Secondary Flame"
-    icon: "mdi:fire"
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_OFF
-
-  climate:
-    name: "Fireplace"
-    sensor: room_temp
-    visual:
-      min_temperature: 60°F
-      max_temperature: 85°F
-      temperature_step:
-        target_temperature: 0.5°F
-        current_temperature: 0.1°F
 
   # Standalone physical UI. Renders fireplace state on the LCD and adjusts
   # power/flame/fan/light via the rotary encoder. status_sensor lets the UI
