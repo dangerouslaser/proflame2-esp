@@ -1,0 +1,92 @@
+name: Web flasher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "components/proflame2/**"
+      - "proflame2_common.yaml"
+      - "proflame2_tembed_webflash.yaml"
+      - "web/**"
+      - ".github/workflows/webflash.yml"
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('.github/workflows/webflash.yml') }}
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: platformio-${{ hashFiles('proflame2_tembed_webflash.yaml', 'proflame2_common.yaml', 'components/proflame2/**') }}
+          restore-keys: |
+            platformio-
+
+      - name: Install ESPHome
+        run: pip install --upgrade esphome
+
+      - name: Compile T-Embed firmware
+        run: esphome compile proflame2_tembed_webflash.yaml
+
+      - name: Stage site
+        run: |
+          set -euo pipefail
+          mkdir -p _site/firmware
+          cp .esphome/build/proflame2-tembed/.pioenvs/proflame2-tembed/firmware.factory.bin \
+             _site/firmware/proflame2-tembed.factory.bin
+          cp web/index.html  _site/index.html
+          cp web/style.css   _site/style.css
+
+          # Stamp the manifest with a version derived from the git ref.
+          if [ -n "${GITHUB_REF_NAME:-}" ] && [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            VERSION="$GITHUB_REF_NAME"
+          else
+            VERSION="$(git rev-parse --short HEAD)"
+          fi
+          sed "s/__VERSION__/${VERSION}/" web/manifest-tembed.json.tmpl > _site/manifest-tembed.json
+
+          ls -la _site _site/firmware
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

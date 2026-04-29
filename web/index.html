@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ProFlame 2 — Web flasher</title>
+  <meta name="description"
+    content="Flash a LilyGo T-Embed CC1101 with the ProFlame 2 ESPHome firmware directly from your browser. No CLI, no Docker." />
+  <link rel="stylesheet" href="style.css" />
+  <script type="module"
+    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>ProFlame 2 ESPHome</h1>
+      <p class="lede">
+        Flash your LilyGo T-Embed CC1101 directly from this page.
+        No command line, no Docker, no ESPHome install.
+      </p>
+    </header>
+
+    <section class="card">
+      <h2><span class="star">⭐</span> LilyGo T-Embed CC1101</h2>
+      <p>
+        Recommended hardware: ESP32-S3 + CC1101 radio + 1.9″ LCD + rotary
+        encoder + 8-pixel WS2812 strip + Li-ion battery on a single board.
+        <a href="https://lilygo.cc/products/t-embed-cc1101?variant=44892519137461">Buy from LilyGo →</a>
+      </p>
+
+      <ol class="steps">
+        <li>Plug the T-Embed into this computer with a USB-C cable.</li>
+        <li>Click <strong>Install</strong> below.</li>
+        <li>Pick the serial port labeled <em>USB JTAG/serial debug unit</em>.</li>
+        <li>Wait ~60 s — the page does the rest, then prompts for your Wi-Fi.</li>
+        <li>Long-press the encoder, point your OEM remote at the device, and confirm to pair.</li>
+      </ol>
+
+      <div class="install-row">
+        <esp-web-install-button manifest="manifest-tembed.json">
+          <button slot="activate" class="primary">Install on T-Embed</button>
+          <span slot="unsupported" class="warn">
+            Web Serial API isn't available in this browser. Use Chrome or Edge
+            on a desktop computer.
+          </span>
+          <span slot="not-allowed" class="warn">
+            Web Serial blocked — check your browser's site settings or try a
+            different browser.
+          </span>
+        </esp-web-install-button>
+      </div>
+
+      <p class="hint">
+        After flash completes, the page will show a <strong>Connect to Wi-Fi</strong>
+        prompt. Enter your network SSID and password — the firmware uses
+        <a href="https://www.improv-wifi.com/">Improv-Wi-Fi</a> over the same
+        USB connection to receive them. No SSID is hard-coded into the firmware.
+      </p>
+    </section>
+
+    <section class="card secondary">
+      <h2>What you get after flashing</h2>
+      <ul class="features">
+        <li><strong>Home Assistant entity set</strong> — climate (HEAT/OFF thermostat with fan modes), light (1–6 brightness as 0–100 %), all the proflame2 controls, plus a diagnostic block showing your captured serial &amp; ECC.</li>
+        <li><strong>Standalone LCD UI</strong> — drives the fireplace from the device with no Wi-Fi or HA dependency. Idle backlight dim, settings cog, info screen.</li>
+        <li><strong>Fire-effect LED strip</strong> — bottom-edge WS2812 with red/orange/yellow flicker that runs while the burner is on. Killable from HA or the device.</li>
+        <li><strong>Battery monitoring</strong> via the on-board BQ27220 fuel gauge.</li>
+        <li><strong>On-device pairing</strong> — capture your OEM remote's serial &amp; ECC directly through the encoder UI; no SDR needed.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Already running another build?</h2>
+      <p>
+        Web-flash will fully erase the existing firmware. If you've customized
+        a YAML on top of this project, OTA-reflash from your existing setup
+        instead — see the
+        <a href="https://github.com/dangerouslaser/proflame2-esp/blob/main/docs/installation.md">installation
+        docs</a>.
+      </p>
+    </section>
+
+    <footer>
+      <p>
+        Source: <a href="https://github.com/dangerouslaser/proflame2-esp">github.com/dangerouslaser/proflame2-esp</a>
+        · <a href="https://github.com/dangerouslaser/proflame2-esp/blob/main/docs/troubleshooting.md">Troubleshooting</a>
+        · MIT licensed
+      </p>
+    </footer>
+  </main>
+</body>
+</html>

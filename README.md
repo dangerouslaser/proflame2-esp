@@ -8,9 +8,18 @@ MHz RF using a CC1101 radio.
 
 ## ⭐ The fast path: LilyGo T-Embed CC1101
 
-If you're starting from scratch, **buy a [LilyGo T-Embed CC1101](https://lilygo.cc/products/t-embed-cc1101?variant=44892519137461)**
-and use [`proflame2_tembed.yaml`](./proflame2_tembed.yaml). It's the path this
-project is built around:
+If you're starting from scratch, **buy a [LilyGo T-Embed CC1101](https://lilygo.cc/products/t-embed-cc1101?variant=44892519137461)**.
+Then either:
+
+- **[Web-flash from your browser](https://dangerouslaser.github.io/proflame2-esp/)**
+  — plug the board into USB, click *Install*, push your Wi-Fi creds via
+  Improv-Wi-Fi, pair on-device. **No CLI, no Docker, no ESPHome install.**
+  *(Chrome/Edge desktop only.)*
+- Or use [`proflame2_tembed.yaml`](./proflame2_tembed.yaml) the regular way
+  (clone + `esphome run`) if you want to bake your own secrets, encryption
+  key, etc. into the firmware.
+
+Either way, this is the path the project is built around:
 
 - **No wiring** — ESP32-S3, CC1101 radio, ST7789V LCD, rotary encoder + push-
   button, dedicated user button, 8-pixel WS2812 strip, BQ27220 fuel gauge, and
