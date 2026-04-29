@@ -89,6 +89,10 @@ class ProFlame2UI : public Component {
   // from input handlers so the screen responds instantly rather than waiting
   // for the next loop() reconciliation.
   void wake_backlight_();
+  // Returns 0 ms for binary backlights (no brightness curve) and ~150 ms
+  // for PWM-dimmable ones, so the same idle-dim path works either way
+  // without spamming "transitions not supported" warnings.
+  uint32_t backlight_transition_ms_() const;
   void cycle_selection_();
   void cycle_selection_back_();
   void apply_delta_to_selected_(int direction);

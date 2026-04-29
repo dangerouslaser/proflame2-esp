@@ -104,7 +104,7 @@ void ProFlame2UI::loop() {
     if (this->backlight_->remote_values.is_on() != should_be_on) {
       auto call = should_be_on ? this->backlight_->turn_on()
                                : this->backlight_->turn_off();
-      call.set_transition_length(150);
+      call.set_transition_length(this->backlight_transition_ms_());
       call.perform();
     }
   }
@@ -116,9 +116,22 @@ void ProFlame2UI::wake_backlight_() {
   }
   if (!this->backlight_->remote_values.is_on()) {
     auto call = this->backlight_->turn_on();
-    call.set_transition_length(80);
+    call.set_transition_length(this->backlight_transition_ms_() / 2);
     call.perform();
   }
+}
+
+uint32_t ProFlame2UI::backlight_transition_ms_() const {
+  // Binary lights snap on/off; passing a non-zero transition length emits
+  // a per-call "transitions not supported" warning on every idle-dim cycle.
+  // PWM-dimmable backlights (if added later) get the smooth fade.
+  if (this->backlight_ == nullptr) {
+    return 0;
+  }
+  const auto &modes = this->backlight_->get_traits().get_supported_color_modes();
+  const bool binary_only =
+      modes.size() == 1 && *modes.begin() == light::ColorMode::ON_OFF;
+  return binary_only ? 0 : 150;
 }
 
 void ProFlame2UI::on_encoder_delta_(int direction) {

@@ -84,7 +84,6 @@ light:
     id: lcd_backlight
     output: lcd_backlight_output
     restore_mode: ALWAYS_ON
-    default_transition_length: 0s
     internal: true
 
   - platform: esp32_rmt_led_strip
