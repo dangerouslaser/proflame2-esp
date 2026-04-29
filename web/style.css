@@ -154,10 +154,6 @@ button.primary:active {
   margin: 12px 0 0;
 }
 
-.hint.small {
-  font-size: 0.85rem;
-}
-
 .callout {
   margin: 16px 0 0;
   padding: 12px 16px;
@@ -176,67 +172,6 @@ button.primary:active {
   color: var(--accent-2);
   font-style: normal;
   font-weight: 600;
-}
-
-.key-box {
-  margin: 24px 0 0;
-  padding: 16px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.key-label {
-  margin: 0 0 10px;
-  font-size: 0.95rem;
-  color: var(--text);
-}
-
-.key-sub {
-  color: var(--text-dim);
-  font-weight: 400;
-}
-
-.key-display {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-}
-
-#api-key {
-  flex: 1;
-  padding: 10px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.9rem;
-  color: var(--accent-2);
-  overflow-x: auto;
-  white-space: nowrap;
-  user-select: all;
-}
-
-.copy-btn {
-  padding: 0 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.copy-btn:hover {
-  background: var(--surface-2);
-  border-color: var(--accent-2);
-}
-
-.copy-btn.copied {
-  background: rgba(255, 184, 77, 0.15);
-  border-color: var(--accent-2);
-  color: var(--accent-2);
 }
 
 footer {

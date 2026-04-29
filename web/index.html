@@ -66,22 +66,15 @@
         USB connection to receive them. No SSID is hard-coded into the firmware.
       </p>
 
-      <div class="key-box">
-        <p class="key-label">
-          <strong>Home Assistant API encryption key</strong>
-          <span class="key-sub">— copy this when HA prompts after the device joins your network.</span>
-        </p>
-        <div class="key-display">
-          <code id="api-key">__API_KEY__</code>
-          <button type="button" id="copy-key" class="copy-btn">Copy</button>
-        </div>
-        <p class="hint small">
-          Each build of this firmware has a unique key, baked in at CI time and
-          shown here. If you re-flash a future build, the key changes — update
-          the HA integration accordingly. (Your own YAML build can use a
-          permanent key from <code>secrets.yaml</code>.)
-        </p>
-      </div>
+      <p class="hint">
+        The build is shipped <strong>without API encryption or an OTA password</strong>,
+        matching what every other ESPHome web flasher does. Home Assistant
+        adopts unencrypted devices fine — leave the encryption-key field
+        blank when prompted. If you want encrypted transport, OTA-reflash
+        with your own YAML using a key from <code>secrets.yaml</code> — see
+        <a href="https://github.com/dangerouslaser/proflame2-esp/blob/main/docs/installation.md">installation
+        docs</a>.
+      </p>
     </section>
 
     <section class="card secondary">
@@ -105,24 +98,6 @@
         docs</a>.
       </p>
     </section>
-
-    <script>
-      const copyBtn = document.getElementById('copy-key');
-      const keyEl = document.getElementById('api-key');
-      copyBtn.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(keyEl.textContent.trim());
-          copyBtn.textContent = 'Copied';
-          copyBtn.classList.add('copied');
-          setTimeout(() => {
-            copyBtn.textContent = 'Copy';
-            copyBtn.classList.remove('copied');
-          }, 1800);
-        } catch (e) {
-          copyBtn.textContent = 'Copy failed';
-        }
-      });
-    </script>
 
     <footer>
       <p>
