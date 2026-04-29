@@ -13,6 +13,15 @@ encoder + push-button, dedicated user button, 8-pixel WS2812 strip on the
 bottom edge, 8 MB OPI PSRAM, 16 MB flash, BQ27220 fuel gauge + Li-ion battery,
 USB-C charging.
 
+**Both LilyGo variants work identically with this firmware:**
+
+- **T-Embed CC1101** — the base board.
+- **T-Embed CC1101 Plus** — adds a PN532 NFC/RFID transceiver on the I²C bus
+  (address `0x24`). The proflame2 firmware never touches it (`i2c.scan: false`,
+  no platform binding), so the extra silicon is dormant and harmless.
+
+Same pin map, same example YAML, same flash flow on both.
+
 - No wiring — everything is on the same PCB.
 - Hardware reference: [Xinyuan-LilyGO/T-Embed-CC1101](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101).
 - Example YAML: [`proflame2_tembed.yaml`](../proflame2_tembed.yaml).

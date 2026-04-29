@@ -8,7 +8,9 @@ MHz RF using a CC1101 radio.
 
 ## ⭐ The fast path: LilyGo T-Embed CC1101
 
-If you're starting from scratch, **buy a [LilyGo T-Embed CC1101](https://lilygo.cc/products/t-embed-cc1101?variant=44892519137461)**.
+If you're starting from scratch, **buy a [LilyGo T-Embed CC1101](https://lilygo.cc/products/t-embed-cc1101?variant=44892519137461)**
+(or the **T-Embed CC1101 Plus** — same board with an extra PN532 NFC chip
+that this firmware leaves dormant).
 Then either:
 
 - **[Web-flash from your browser](https://dangerouslaser.github.io/proflame2-esp/)**
