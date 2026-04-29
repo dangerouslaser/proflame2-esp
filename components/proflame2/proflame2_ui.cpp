@@ -787,11 +787,15 @@ void ProFlame2UI::on_settings_rotate_(int direction) {
 
 const char *ProFlame2UI::climate_field_label_(ClimateField c) {
   switch (c) {
-    case ClimateField::kMode:       return "MODE";
-    case ClimateField::kTargetTemp: return "TARGET";
-    case ClimateField::kFanMode:    return "FAN";
-    case ClimateField::kBack:       return "BACK";
-    default:                        return "?";
+    case ClimateField::kMode:          return "MODE";
+    case ClimateField::kTargetTemp:    return "TARGET";
+    case ClimateField::kFanMode:       return "FAN";
+    case ClimateField::kHeatFlame:     return "HEAT FLAME";
+    case ClimateField::kHeatFan:       return "HEAT FAN";
+    case ClimateField::kHeatLight:     return "HEAT LIGHT";
+    case ClimateField::kHeatSecondary: return "HEAT SEC";
+    case ClimateField::kBack:          return "BACK";
+    default:                           return "?";
   }
 }
 
@@ -870,6 +874,33 @@ void ProFlame2UI::on_climate_click_() {
       ESP_LOGI(TAG, "Climate: FAN → %s", this->climate_fan_label_(next));
       return;
     }
+    // Heat-mode config rows. The three numeric ones use the same
+    // click-to-edit pattern as target temp (kEdit toggles, rotation
+    // adjusts ±1). The secondary-flame switch toggles directly.
+    case ClimateField::kHeatFlame:
+    case ClimateField::kHeatFan:
+    case ClimateField::kHeatLight:
+      this->ui_state_ = (this->ui_state_ == UIState::kEdit)
+                            ? UIState::kNavigate
+                            : UIState::kEdit;
+      ESP_LOGD(TAG, "Climate: %s %s",
+               this->ui_state_ == UIState::kEdit ? "editing" : "confirming",
+               this->climate_field_label_(this->selected_climate_));
+      return;
+    case ClimateField::kHeatSecondary: {
+      auto *sw = clim->get_heat_secondary_flame();
+      if (sw == nullptr) {
+        return;
+      }
+      const bool next = !sw->state;
+      if (next) {
+        sw->turn_on();
+      } else {
+        sw->turn_off();
+      }
+      ESP_LOGI(TAG, "Climate: HEAT SEC → %s", next ? "ON" : "OFF");
+      return;
+    }
     case ClimateField::kBack:
       this->ui_state_ = UIState::kNavigate;
       this->view_ = View::kIdle;
@@ -888,20 +919,60 @@ void ProFlame2UI::on_climate_rotate_(int direction) {
     return;
   }
 
-  // Edit mode on TARGET TEMP — adjust the value rather than moving the cursor.
-  if (this->ui_state_ == UIState::kEdit &&
-      this->selected_climate_ == ClimateField::kTargetTemp) {
-    const auto t = clim->traits();
-    const float min_c = t.get_visual_min_temperature();
-    const float max_c = t.get_visual_max_temperature();
-    const float step = t.get_visual_target_temperature_step();
-    float next = clim->target_temperature + (direction > 0 ? step : -step);
-    if (next < min_c) next = min_c;
-    if (next > max_c) next = max_c;
-    auto call = clim->make_call();
-    call.set_target_temperature(next);
-    call.perform();
-    return;
+  // Edit mode — adjust the value of the currently-selected row rather than
+  // moving the cursor. Each numeric row clamps to its own min/max.
+  if (this->ui_state_ == UIState::kEdit) {
+    switch (this->selected_climate_) {
+      case ClimateField::kTargetTemp: {
+        const auto t = clim->traits();
+        const float min_c = t.get_visual_min_temperature();
+        const float max_c = t.get_visual_max_temperature();
+        const float step = t.get_visual_target_temperature_step();
+        float next = clim->target_temperature + (direction > 0 ? step : -step);
+        if (next < min_c) next = min_c;
+        if (next > max_c) next = max_c;
+        auto call = clim->make_call();
+        call.set_target_temperature(next);
+        call.perform();
+        return;
+      }
+      case ClimateField::kHeatFlame:
+      case ClimateField::kHeatFan:
+      case ClimateField::kHeatLight: {
+        // Pull the appropriate config number, ±1 within its own bounds.
+        // HEAT FLAME's min is 1 (the fireplace expects a non-zero flame
+        // when burning); HEAT FAN/LIGHT can go to 0 ("off").
+        number::Number *num = nullptr;
+        int min_v = 0;
+        switch (this->selected_climate_) {
+          case ClimateField::kHeatFlame:
+            num = clim->get_heat_flame_level();
+            min_v = 1;
+            break;
+          case ClimateField::kHeatFan:
+            num = clim->get_heat_fan_level();
+            min_v = 0;
+            break;
+          case ClimateField::kHeatLight:
+            num = clim->get_heat_light_level();
+            min_v = 0;
+            break;
+          default: break;
+        }
+        if (num == nullptr) {
+          return;
+        }
+        const float cur_f = num->has_state() ? num->state : static_cast<float>(min_v);
+        int next = static_cast<int>(cur_f) + direction;
+        if (next < min_v) next = min_v;
+        if (next > 6) next = 6;
+        num->make_call().set_value(static_cast<float>(next)).perform();
+        return;
+      }
+      default:
+        // Other rows have no edit mode; fall through to navigate.
+        break;
+    }
   }
 
   // Navigate mode — cycle through climate fields. Wrap in either direction.
@@ -924,19 +995,10 @@ void ProFlame2UI::draw_climate_(display::Display &it, int width, int height) {
     return;
   }
 
-  // Top: current room temperature, big-and-dim. Use HA-side sensor reading
-  // climate already exposes via current_temperature.
-  if (this->font_medium_ != nullptr && !std::isnan(clim->current_temperature)) {
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "%d°F",
-                  c_to_f_round(clim->current_temperature));
-    it.print(width / 2, 24, this->font_medium_, kDim,
-             display::TextAlign::TOP_CENTER, buf);
-  }
-
-  // Sub-fields in a vertical list below. font_small uniformly so we can fit
-  // current temp + 4 rows + back-hint on the 170 px tall panel.
-  const int top = 56;
+  // Eight rows on a 170 px panel — same layout shape as the settings page.
+  // font_small uniformly; selection signaled by cursor + accent color, no
+  // bigger font on the active row (which would push siblings into each other).
+  const int top = 22;
   const int bottom_reserve = 6;
   const int rows = static_cast<int>(ClimateField::kCount);
   const int row_h = (height - top - bottom_reserve) / rows;
@@ -959,11 +1021,20 @@ void ProFlame2UI::draw_climate_(display::Display &it, int width, int height) {
     char buf[16];
     Color value_color = kWhite;
     switch (c) {
-      case ClimateField::kMode:
-        std::snprintf(buf, sizeof(buf), "%s",
-                      this->climate_mode_label_(clim->mode));
+      case ClimateField::kMode: {
+        // "OFF (72°F)" — show the room-temp inline so the user can see the
+        // current reading without a dedicated header row, since climate's
+        // sole context is "how does current compare to target?".
+        const char *mode = this->climate_mode_label_(clim->mode);
+        if (!std::isnan(clim->current_temperature)) {
+          std::snprintf(buf, sizeof(buf), "%s %d°F", mode,
+                        c_to_f_round(clim->current_temperature));
+        } else {
+          std::snprintf(buf, sizeof(buf), "%s", mode);
+        }
         value_color = (clim->mode == climate::CLIMATE_MODE_HEAT) ? kGreen : kDim;
         break;
+      }
       case ClimateField::kTargetTemp: {
         const int f = c_to_f_round(clim->target_temperature);
         if (editing) {
@@ -978,6 +1049,38 @@ void ProFlame2UI::draw_climate_(display::Display &it, int width, int height) {
         const auto m = clim->fan_mode.value_or(climate::CLIMATE_FAN_OFF);
         std::snprintf(buf, sizeof(buf), "%s", this->climate_fan_label_(m));
         value_color = (m == climate::CLIMATE_FAN_OFF) ? kDim : kWhite;
+        break;
+      }
+      case ClimateField::kHeatFlame:
+      case ClimateField::kHeatFan:
+      case ClimateField::kHeatLight: {
+        number::Number *num = nullptr;
+        switch (c) {
+          case ClimateField::kHeatFlame: num = clim->get_heat_flame_level(); break;
+          case ClimateField::kHeatFan:   num = clim->get_heat_fan_level();   break;
+          case ClimateField::kHeatLight: num = clim->get_heat_light_level(); break;
+          default: break;
+        }
+        if (num == nullptr) {
+          std::snprintf(buf, sizeof(buf), "--");
+          value_color = kDim;
+        } else {
+          const int v = num->has_state() ? static_cast<int>(num->state) : 0;
+          if (editing) {
+            std::snprintf(buf, sizeof(buf), "[%d]", v);
+            value_color = kAccent;
+          } else {
+            std::snprintf(buf, sizeof(buf), "%d", v);
+            value_color = (v == 0) ? kDim : kWhite;
+          }
+        }
+        break;
+      }
+      case ClimateField::kHeatSecondary: {
+        auto *sw = clim->get_heat_secondary_flame();
+        const bool on = (sw != nullptr && sw->state);
+        std::snprintf(buf, sizeof(buf), "%s", on ? "ON" : "OFF");
+        value_color = on ? kGreen : kDim;
         break;
       }
       case ClimateField::kBack:

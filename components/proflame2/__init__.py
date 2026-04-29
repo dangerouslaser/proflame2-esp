@@ -107,6 +107,7 @@ CONF_CLIMATE = "climate"
 CONF_HYSTERESIS = "hysteresis"
 CONF_HEAT_FLAME_LEVEL = "heat_flame_level"
 CONF_HEAT_FAN_LEVEL = "heat_fan_level"
+CONF_HEAT_LIGHT_LEVEL = "heat_light_level"
 CONF_HEAT_SECONDARY_FLAME = "heat_secondary_flame"
 CONF_ECC_CONSTANTS = "ecc_constants"
 CONF_ECC_C1 = "c1"
@@ -231,6 +232,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_PAIR_CANCEL): button.button_schema(ProFlame2PairCancelButton),
         cv.Optional(CONF_HEAT_FLAME_LEVEL): number.number_schema(ProFlame2ConfigNumber),
         cv.Optional(CONF_HEAT_FAN_LEVEL): number.number_schema(ProFlame2ConfigNumber),
+        cv.Optional(CONF_HEAT_LIGHT_LEVEL): number.number_schema(ProFlame2ConfigNumber),
         cv.Optional(CONF_HEAT_SECONDARY_FLAME): switch.switch_schema(
             ProFlame2HeatSecondaryFlameSwitch
         ),
@@ -406,6 +408,13 @@ async def to_code(config):
             min_value=0, max_value=6, step=1, default=0.0,
         )
 
+    heat_light_num = None
+    if CONF_HEAT_LIGHT_LEVEL in config:
+        heat_light_num = await _add_number(
+            var, config[CONF_HEAT_LIGHT_LEVEL], parent_setter=None,
+            min_value=0, max_value=6, step=1, default=0.0,
+        )
+
     # Config-only switch — no parent-back-reference and no parent setter.
     # Stashed for the climate to pick up below.
     heat_secondary_sw = None
@@ -430,6 +439,8 @@ async def to_code(config):
             cg.add(clim.set_heat_flame_level(heat_flame_num))
         if heat_fan_num is not None:
             cg.add(clim.set_heat_fan_level(heat_fan_num))
+        if heat_light_num is not None:
+            cg.add(clim.set_heat_light_level(heat_light_num))
         if heat_secondary_sw is not None:
             cg.add(clim.set_heat_secondary_flame(heat_secondary_sw))
         cg.add(var.set_climate(clim))

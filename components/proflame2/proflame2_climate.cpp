@@ -200,6 +200,7 @@ void ProFlame2Climate::run_hysteresis_() {
     // so the user's choice (which may be OFF) wins over the auto-default.
     this->parent_->set_flame_level(this->get_heat_flame_level_());
     this->parent_->set_fan_level(this->get_heat_fan_level_());
+    this->parent_->set_light_level(this->get_heat_light_level_());
     this->parent_->set_power(true);
     this->parent_->set_secondary_flame(this->get_heat_secondary_flame_());
     this->parent_->queue_send();
@@ -250,6 +251,16 @@ uint8_t ProFlame2Climate::get_heat_fan_level_() const {
     return static_cast<uint8_t>(v);
   }
   return 0;  // unconfigured → no fan
+}
+
+uint8_t ProFlame2Climate::get_heat_light_level_() const {
+  if (this->heat_light_level_ != nullptr && this->heat_light_level_->has_state()) {
+    int v = static_cast<int>(this->heat_light_level_->state);
+    if (v < 0) v = 0;
+    if (v > 6) v = 6;
+    return static_cast<uint8_t>(v);
+  }
+  return 0;  // unconfigured → light off (don't surprise the user)
 }
 
 bool ProFlame2Climate::get_heat_secondary_flame_() const {

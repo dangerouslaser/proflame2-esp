@@ -115,11 +115,19 @@ class ProFlame2UI : public Component {
   };
 
   // Climate editor sub-fields — same nav pattern as the main page (cycle in
-  // kNavigate, click-and-edit on the temp). Mode / Fan toggle in place.
+  // kNavigate, click-and-edit on the temp / heat-config rows). Mode / Fan
+  // toggle in place. The four kHeat* rows mirror the HA-side config entities
+  // (heat_flame_level / heat_fan_level / heat_light_level / heat_secondary_flame)
+  // so users can tune defaults without HA — and they pick up automatically when
+  // the climate next engages the burner.
   enum class ClimateField : uint8_t {
     kMode = 0,
     kTargetTemp,
     kFanMode,
+    kHeatFlame,
+    kHeatFan,
+    kHeatLight,
+    kHeatSecondary,
     kBack,
     kCount,
   };

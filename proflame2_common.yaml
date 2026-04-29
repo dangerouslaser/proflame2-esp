@@ -86,6 +86,10 @@ proflame2:
     name: "Heat Fan Level"
     icon: "mdi:fan"
     entity_category: config
+  heat_light_level:
+    name: "Heat Light Level"
+    icon: "mdi:lightbulb"
+    entity_category: config
   heat_secondary_flame:
     name: "Heat Secondary Flame"
     icon: "mdi:fire"

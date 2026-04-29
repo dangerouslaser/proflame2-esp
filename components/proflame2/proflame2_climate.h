@@ -20,7 +20,16 @@ class ProFlame2Climate : public climate::Climate, public Component {
   void set_hysteresis(float h) { hysteresis_ = h; }
   void set_heat_flame_level(number::Number *n) { heat_flame_level_ = n; }
   void set_heat_fan_level(number::Number *n) { heat_fan_level_ = n; }
+  void set_heat_light_level(number::Number *n) { heat_light_level_ = n; }
   void set_heat_secondary_flame(switch_::Switch *s) { heat_secondary_flame_ = s; }
+
+  // Accessors for the on-device climate editor — lets the UI reach the
+  // backing config entities without re-resolving them through the
+  // ProFlame2Component. Returns nullptr if the entity wasn't wired up.
+  number::Number *get_heat_flame_level() const { return heat_flame_level_; }
+  number::Number *get_heat_fan_level() const { return heat_fan_level_; }
+  number::Number *get_heat_light_level() const { return heat_light_level_; }
+  switch_::Switch *get_heat_secondary_flame() const { return heat_secondary_flame_; }
 
   void setup() override;
   void loop() override;
@@ -37,6 +46,7 @@ class ProFlame2Climate : public climate::Climate, public Component {
   // config entity wasn't wired up (or hasn't restored a value yet).
   uint8_t get_heat_flame_level_() const;
   uint8_t get_heat_fan_level_() const;
+  uint8_t get_heat_light_level_() const;
   bool get_heat_secondary_flame_() const;
 
   static constexpr uint32_t EVAL_INTERVAL_MS = 5000;  // hysteresis tick
@@ -45,6 +55,7 @@ class ProFlame2Climate : public climate::Climate, public Component {
   sensor::Sensor *sensor_{nullptr};
   number::Number *heat_flame_level_{nullptr};
   number::Number *heat_fan_level_{nullptr};
+  number::Number *heat_light_level_{nullptr};
   switch_::Switch *heat_secondary_flame_{nullptr};
   float hysteresis_{0.5f};
   uint32_t last_eval_ms_{0};
