@@ -1,0 +1,44 @@
+# Troubleshooting
+
+[← Back to README](../README.md)
+
+- **Fireplace ignores packets** → 90 % of the time this is the wrong serial
+  or wrong ECC `(c, d)`. On the T-Embed, just run on-device learn-mode
+  (long-press encoder, point at OEM remote, confirm). On any board, the
+  HA `Pair Remote` / `Confirm Pairing` buttons do the same. See
+  [pairing.md](pairing.md).
+- **Settings revert seconds after I change them / fireplace state desyncs
+  from HA** → if you cloned the OEM remote (anything that isn't option 3
+  in [Capture options](pairing-sdr.md#capture-options)), both devices share
+  the same identity and the receiver honors whichever speaks last. Pull the
+  batteries from the OEM remote — see
+  [After pairing](pairing.md#-after-pairing-pull-the-batteries-from-your-oem-remote).
+- **Pairing never converges** → confirm `gdo0_pin` is wired (plain ESP32
+  builds RX-disabled by default), and that the OEM remote is held within
+  ~30 cm of the ESP32. Check the logs for `decode: chips=… pkts=…` lines —
+  `pkts > 0` means RX is working; if you see only `chips=…` without `pkts`,
+  there's a signal-quality issue.
+- **TX stalls / fireplace stops responding to commands after a while** →
+  a long loop iteration (display redraw, WiFi housekeeping, learn-mode
+  service) can underflow the CC1101's TX FIFO. The component
+  auto-recovers and now re-queues the dropped packet on the next loop
+  tick (see commit history); if you ever see persistent silence, a
+  power-cycle is the hard reset.
+- **Compile fails** → ESPHome ≥ 2024.7 needed for the climate fan-mode work;
+  the climate entity also requires the ESP-IDF framework (Arduino is
+  untested here).
+- **Light won't turn on** → by design, only when `power` is on. You can
+  pre-dial a level while power is off, though — it'll apply on the next
+  power-on. See [entities.md → State restoration](entities.md#state-restoration).
+- **WS2812 strip shows blue when expecting orange/red** → check `rgb_order:`
+  in YAML. ESPHome's `chipset: WS2812` driver expects native GRB order on
+  the wire, even though the LilyGo example claims GBR (that refers to
+  FastLED's internal ordering, not the chip's wire format).
+- **HomeKit fan slider snaps from 0 % to LOW** → known limitation of HA's
+  HomeKit bridge; it converts the slider via `percentage_to_ordered_list_item`
+  with `[LOW, MIDDLE, MEDIUM, HIGH]` and has no off step.
+- **HA shows the device as "unavailable" with `EncryptionHelloAPIError` in
+  logs** → the ESPHome dashboard, if running 24/7 next to HA, can leak TCP
+  sockets on each handshake retry and eventually exhaust the device's
+  `max_connections` cap. Stop the dashboard container when not actively
+  flashing/editing — the HA integration doesn't need it.
