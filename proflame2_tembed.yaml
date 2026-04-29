@@ -94,6 +94,10 @@ light:
     id: lcd_backlight
     output: lcd_backlight_output
     restore_mode: ALWAYS_ON
+    # Binary lights have no brightness curve to interpolate through; the
+    # default 1 s transition emits a "transitions not supported" warning
+    # every time the UI's idle-dim logic toggles the backlight.
+    default_transition_length: 0s
     internal: true
 
   # 8x WS2813 (WS2812B-compatible) addressable LED strip on the bottom edge of
