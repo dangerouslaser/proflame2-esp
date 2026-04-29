@@ -27,6 +27,13 @@
 - **Compile fails** → ESPHome ≥ 2024.7 needed for the climate fan-mode work;
   the climate entity also requires the ESP-IDF framework (Arduino is
   untested here).
+- **Climate stays cold / `Temperature unavailable; shutting fireplace down`
+  in logs** → the example YAMLs reference a HA template helper named
+  `sensor.fireplace_room_temperature` for the room temperature feed. If you
+  haven't created it (or named yours differently), the climate has nothing
+  to read and fails safe by dropping the burner. See
+  [climate.md → Configuration](climate.md#configuration) for the helper
+  setup.
 - **Light won't turn on** → by design, only when `power` is on. You can
   pre-dial a level while power is off, though — it'll apply on the next
   power-on. See [entities.md → State restoration](entities.md#state-restoration).

@@ -10,38 +10,52 @@ flame height.
 
 ## Configuration
 
-The climate entity needs a current-temperature source from HA. Use a template
-helper for indirection so you can repoint the source without reflashing:
+The climate entity needs a current-temperature source from HA. **The example
+YAMLs already wire this up via `proflame2_common.yaml` — but they reference
+a specific helper that you have to create yourself, named exactly as below,
+or the climate boots into "Temperature unavailable" and stays off.**
 
-In Home Assistant: **Settings → Devices & Services → Helpers → Create Helper
-→ Template a sensor**. Set the state template to e.g.
-`{{ states('sensor.my_ecobee_temperature') }}` and unit `°F` (or whatever
-your sensor reports).
+### 1. Create the HA Template helper
 
-Then in your ESPHome YAML:
+In Home Assistant: **Settings → Devices & Services → Helpers → Create
+Helper → Template a sensor**. Fill in:
+
+- **Name**: `Fireplace Room Temperature` *(this exact name — HA slugifies it
+  to `sensor.fireplace_room_temperature`, which is what the YAML references.
+  If you pick a different name, edit the `entity_id:` in step 2 to match.)*
+- **State template**: `{{ states('sensor.YOUR_THERMOMETER') }}` —
+  point at whatever HA-side sensor reports your living-room temperature.
+  Examples: `sensor.living_room_temperature`, an Ecobee remote-sensor entity,
+  a Z-Wave multisensor, etc.
+- **Unit of measurement**: match your source sensor — `°F` if it reports
+  Fahrenheit, `°C` if it reports Celsius.
+- **Device class**: `Temperature`
+
+Why a helper rather than referencing the source sensor directly? Indirection.
+You can swap thermometers without reflashing the device — just change what
+the helper points at.
+
+### 2. The ESPHome YAML
+
+Already in the example YAMLs; reproduced here so you know what to tweak if
+you used a different helper name or your source sensor is in Celsius.
 
 ```yaml
 sensor:
   - platform: homeassistant
     id: room_temp
-    entity_id: sensor.fireplace_room_temperature   # the helper above
+    entity_id: sensor.fireplace_room_temperature   # ← the helper from step 1
+    # If your helper reports °F, keep this lambda (climate is °C internally).
+    # If your helper reports °C already, DELETE the filters: block entirely.
     filters:
-      - lambda: 'return (x - 32.0f) * 5.0f / 9.0f;'  # °F → °C (climate is °C internally)
+      - lambda: 'return (x - 32.0f) * 5.0f / 9.0f;'  # °F → °C
 
+# (the proflame2: block lives in proflame2_common.yaml — entities below are
+# pulled in automatically when you `packages: !include` it)
 proflame2:
-  # ... entities from installation.md ...
-  heat_flame_level:
-    name: "Heat Flame Level"
-    icon: "mdi:fire"
-    entity_category: config
-  heat_fan_level:
-    name: "Heat Fan Level"
-    icon: "mdi:fan"
-    entity_category: config
-  heat_light_level:
-    name: "Heat Light Level"
-    icon: "mdi:lightbulb"
-    entity_category: config
+  heat_flame_level:    { name: "Heat Flame Level",     icon: "mdi:fire",      entity_category: config }
+  heat_fan_level:      { name: "Heat Fan Level",       icon: "mdi:fan",       entity_category: config }
+  heat_light_level:    { name: "Heat Light Level",     icon: "mdi:lightbulb", entity_category: config }
   heat_secondary_flame:
     name: "Heat Secondary Flame"
     icon: "mdi:fire"
@@ -58,8 +72,20 @@ proflame2:
         current_temperature: 0.1°F
 ```
 
-The example YAMLs ship with this config already wired up via
-[`proflame2_common.yaml`](../proflame2_common.yaml).
+### 3. What happens if the helper is missing or broken
+
+The climate fails safe. If the helper doesn't exist, returns `unavailable`
+or `unknown`, or HA disconnects entirely, `current_temperature` becomes NaN
+and the climate's hysteresis loop:
+
+- Drops the burner if it's currently on (so the fireplace doesn't run open-
+  loop without a temperature reference).
+- Logs `Temperature unavailable; shutting fireplace down` at WARN.
+- Stays IDLE until a valid reading returns.
+
+So a misnamed helper is a "climate stays cold" symptom, not a "climate runs
+forever" symptom. Check the device logs (`logger:` is enabled by default
+in both example YAMLs) for the warning if HEAT mode looks dead.
 
 ## How the climate behaves
 
