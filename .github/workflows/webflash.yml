@@ -53,10 +53,41 @@ jobs:
       - name: Install ESPHome
         run: pip install --upgrade esphome
 
+      - name: Generate per-build credentials
+        id: creds
+        run: |
+          set -euo pipefail
+          # API key: 32 random bytes, base64 — what ESPHome's API encryption
+          # block expects.
+          API_KEY="$(openssl rand -base64 32)"
+          # OTA password: 32 hex chars — easier on the eyes than base64
+          # when copy-pasted, no special characters to wrangle.
+          OTA_PASSWORD="$(openssl rand -hex 16)"
+
+          {
+            echo "webflash_api_key: \"${API_KEY}\""
+            echo "webflash_ota_password: \"${OTA_PASSWORD}\""
+          } > secrets.yaml
+
+          # Pass to later steps. Not masked — the values are intentionally
+          # public (rendered on the GH Pages site, extractable from the
+          # firmware bin). Masking would just complicate debugging.
+          {
+            echo "api_key<<EOF"
+            echo "${API_KEY}"
+            echo "EOF"
+            echo "ota_password<<EOF"
+            echo "${OTA_PASSWORD}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Compile T-Embed firmware
         run: esphome compile proflame2_tembed_webflash.yaml
 
       - name: Stage site
+        env:
+          API_KEY: ${{ steps.creds.outputs.api_key }}
+          OTA_PASSWORD: ${{ steps.creds.outputs.ota_password }}
         run: |
           set -euo pipefail
           mkdir -p _site/firmware
@@ -72,6 +103,11 @@ jobs:
             VERSION="$(git rev-parse --short HEAD)"
           fi
           sed "s/__VERSION__/${VERSION}/" web/manifest-tembed.json.tmpl > _site/manifest-tembed.json
+
+          # Stamp credentials into the page. | as the sed separator since
+          # base64 keys can contain / but not |.
+          sed -i "s|__API_KEY__|${API_KEY}|g" _site/index.html
+          sed -i "s|__OTA_PASSWORD__|${OTA_PASSWORD}|g" _site/index.html
 
           ls -la _site _site/firmware
 

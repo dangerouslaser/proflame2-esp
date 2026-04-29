@@ -55,11 +55,13 @@
 
       <aside class="callout">
         <strong>Browser freezes immediately after flashing?</strong>
-        Refresh the page and click <em>Install</em> again — once the serial
-        port has been opened in this tab, the post-flash Improv-Wi-Fi handoff
-        completes cleanly. Known
-        <a href="https://github.com/esphome/esp-web-tools/issues">esp-web-tools</a>
-        interaction with the ESP32-S3 USB-CDC reset path.
+        Known unresolved upstream bug —
+        <a href="https://github.com/esphome/esp-web-tools/issues/608">esp-web-tools #608</a>
+        — caused by the ESP32-S3 USB-CDC stack racing on the post-flash port
+        re-open. Workaround: click <em>Install</em>, click <em>Logs</em> in
+        the install dialog (this pre-warms the serial handler), then go back
+        and trigger the flash. Or just refresh the page and retry — the
+        second attempt almost always succeeds.
       </aside>
 
       <p class="hint">
@@ -69,15 +71,75 @@
         USB connection to receive them. No SSID is hard-coded into the firmware.
       </p>
 
-      <p class="hint">
-        The build is shipped <strong>without API encryption or an OTA password</strong>,
-        matching what every other ESPHome web flasher does. Home Assistant
-        adopts unencrypted devices fine — leave the encryption-key field
-        blank when prompted. If you want encrypted transport, OTA-reflash
-        with your own YAML using a key from <code>secrets.yaml</code> — see
-        <a href="https://github.com/dangerouslaser/proflame2-esp/blob/main/docs/installation.md">installation
-        docs</a>.
-      </p>
+      <div class="key-box">
+        <p class="key-label">
+          <strong>Home Assistant API encryption key</strong>
+          <span class="key-sub">— paste this when HA prompts on adoption.</span>
+        </p>
+        <div class="key-display">
+          <code id="api-key">__API_KEY__</code>
+          <button type="button" class="copy-btn" data-target="api-key">Copy</button>
+        </div>
+
+        <p class="key-label" style="margin-top: 14px;">
+          <strong>OTA password</strong>
+          <span class="key-sub">— for OTA reflashing from the ESPHome dashboard.</span>
+        </p>
+        <div class="key-display">
+          <code id="ota-pw">__OTA_PASSWORD__</code>
+          <button type="button" class="copy-btn" data-target="ota-pw">Copy</button>
+        </div>
+
+        <details class="key-explainer">
+          <summary>Why are these baked into the firmware?</summary>
+          <p>
+            Home Assistant's "Add ESPHome device" flow effectively requires
+            an encryption key, and the OTA password stops anyone on your
+            LAN from pushing arbitrary firmware. Both have to be set at
+            ESPHome compile time, and a static GitHub Pages site can't
+            generate per-user binaries — so CI generates fresh values per
+            build and stamps them in here.
+          </p>
+          <p>
+            They're <strong>not real secrets</strong>: the public firmware
+            <code>.factory.bin</code> is downloadable from this same site,
+            and anyone with it (and <code>strings</code>) can extract them.
+            Treat them as <em>UX bridges</em> for HA's adoption flow, not
+            as cryptographic boundaries. Your home Wi-Fi password is the
+            actual security perimeter for a LAN-only fireplace controller.
+          </p>
+        </details>
+
+        <details class="key-explainer">
+          <summary>How to swap them for your own permanent values</summary>
+          <p>
+            OTA-reflash the device with your own YAML and a private
+            <code>secrets.yaml</code>. The
+            <a href="https://github.com/dangerouslaser/proflame2-esp/blob/main/docs/installation.md">installation
+            docs</a> walk through the full <code>esphome run</code> flow.
+            After OTA, your private key replaces the per-build one, the HA
+            integration re-pairs with the new key, and future builds of
+            <em>your</em> YAML never rotate it.
+          </p>
+        </details>
+
+        <details class="key-explainer">
+          <summary>Why you might want to swap them</summary>
+          <ul>
+            <li><strong>Each new web-flash build rotates these values.</strong>
+              If you re-flash from this page after a code update, the API
+              key changes and you'll need to update HA. Your own YAML keeps
+              keys stable across reflashes.</li>
+            <li><strong>True LAN privacy.</strong> Anyone who pulls the
+              public firmware bin can read these. Your own YAML keeps them
+              private — the API stream becomes opaque to LAN snoopers, and
+              the OTA endpoint refuses unauthorized firmware pushes.</li>
+            <li><strong>You're past the "first flash" stage.</strong> The
+              web flasher is the on-ramp; your own YAML is the long-term
+              home for the device.</li>
+          </ul>
+        </details>
+      </div>
     </section>
 
     <section class="card secondary">
@@ -101,6 +163,27 @@
         docs</a>.
       </p>
     </section>
+
+    <script>
+      document.querySelectorAll('.copy-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const target = document.getElementById(btn.dataset.target);
+          if (!target) return;
+          try {
+            await navigator.clipboard.writeText(target.textContent.trim());
+            const original = btn.textContent;
+            btn.textContent = 'Copied';
+            btn.classList.add('copied');
+            setTimeout(() => {
+              btn.textContent = original;
+              btn.classList.remove('copied');
+            }, 1800);
+          } catch (e) {
+            btn.textContent = 'Copy failed';
+          }
+        });
+      });
+    </script>
 
     <footer>
       <p>
