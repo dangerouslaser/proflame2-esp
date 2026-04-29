@@ -38,6 +38,10 @@ proflame2:
     name: "Heat Fan Level"
     icon: "mdi:fan"
     entity_category: config
+  heat_light_level:
+    name: "Heat Light Level"
+    icon: "mdi:lightbulb"
+    entity_category: config
   heat_secondary_flame:
     name: "Heat Secondary Flame"
     icon: "mdi:fire"
@@ -63,14 +67,16 @@ Intentionally simple bang-bang thermostat:
 
 - **HEAT mode**: when current < target − hysteresis (default 0.5 °C), the
   climate sends a single packet that turns power on, sets `flame_level`,
-  `fan_level`, and `secondary_flame` to the values held in the three `heat_*`
-  config entities, and queues a transmit.
+  `fan_level`, `light_level`, and `secondary_flame` to the values held in the
+  four `heat_*` config entities, and queues a transmit.
 - When current ≥ target + hysteresis, the climate sends a packet that turns
   power off and zeroes fan + secondary flame so the fireplace doesn't sit
   blowing room-temperature air.
 - The heat-mode config values are applied **on every burner-on cycle**, not
   just the first one. To change behavior persistently, change the config
-  entities — the next cycle picks up the new values.
+  entities — the next cycle picks up the new values. T-Embed users can also
+  edit the same four entities directly from the on-device climate editor —
+  see [device-ui.md](device-ui.md#climate-editor).
 - **Hysteresis tick** is 5 s (climate `loop()` won't re-evaluate more often
   than that).
 - **OFF mode**: the climate also drops fan + secondary along with power, so

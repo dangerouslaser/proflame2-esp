@@ -30,7 +30,9 @@ Either way, this is the path the project is built around:
   remote at the device, press a couple of buttons, hold to confirm.
   → [On-device pairing (T-Embed)](docs/pairing-tembed.md)
 - **Standalone LCD + encoder UI** that drives the fireplace without HA or
-  WiFi. Fields, edit mode, settings cog, info screen, idle backlight dim.
+  Wi-Fi. Idle field list, full settings page (LEDs, battery rendering, clock
+  screensaver, encoder direction, backlight timeout, info, clear-pairing,
+  reboot), 8-row climate editor (mode / target / fan / heat-mode defaults).
   → [Device UI](docs/device-ui.md)
 - **Fire-effect LED strip** along the bottom edge — red / orange / yellow
   flicker that runs whenever the burner is on, killable from HA or the

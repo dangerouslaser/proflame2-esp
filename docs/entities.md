@@ -24,6 +24,7 @@ exposed):
 | `climate.fireplace` | climate | HEAT/OFF thermostat with fan modes — see [climate.md](climate.md) |
 | `number.fireplace_heat_flame_level` | number (config) | 1–6, used at burner-on |
 | `number.fireplace_heat_fan_level` | number (config) | 0–6, used at burner-on |
+| `number.fireplace_heat_light_level` | number (config) | 0–6, used at burner-on (default 0 = off) |
 | `switch.fireplace_heat_secondary_flame` | switch (config) | applied at burner-on |
 
 ## Pairing (when learn-mode is wired up)
@@ -44,10 +45,17 @@ exposed):
 
 ## T-Embed-only
 
+All of the device-UI toggles below are backed by HA template entities so HA
+and the on-device settings page share one source of truth.
+
 | Entity | Type | Notes |
 |---|---|---|
 | `light.proflame2_tembed_status_leds` | light | manual control of the bottom-edge WS2812 strip + effects |
 | `switch.proflame2_tembed_status_leds_enabled` | switch (config) | master enable for the auto fire animation |
+| `switch.proflame2_tembed_battery_as_bar` | switch (config) | ON = graphical battery bar; OFF = `BAT NN%` text. Default ON. |
+| `switch.proflame2_tembed_clock_on_idle` | switch (config) | ON = LCD shows large clock when idle past timeout; OFF = backlight off. Default OFF. |
+| `switch.proflame2_tembed_invert_encoder_direction` | switch (config) | Software-flips encoder rotation. Default OFF. |
+| `select.proflame2_tembed_backlight_timeout` | select (config) | `"15s"` / `"30s"` / `"1m"` / `"5m"` / `"never"`. Default 30 s. |
 | `sensor.proflame2_tembed_battery` | sensor (diagnostic) | BQ27220 fuel gauge state-of-charge |
 
 The HA entity IDs above use the example-YAML names (`fireplace`,

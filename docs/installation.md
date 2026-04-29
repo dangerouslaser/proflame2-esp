@@ -2,6 +2,19 @@
 
 [← Back to README](../README.md)
 
+## Two flashing paths
+
+Pick one — both produce a working device, they just trade convenience for
+control over what's baked into the binary.
+
+| Path | When to use it | What you get / give up |
+|---|---|---|
+| **[Web flasher](https://dangerouslaser.github.io/proflame2-esp/)** (T-Embed or generic ESP32 + CC1101) | You want to be running in 5 minutes; you're flashing a fresh board over USB. Chrome/Edge desktop only. | Per-build random API key + OTA password baked by CI, surfaced on the page for copy/paste into HA. Wi-Fi pushed via Improv-Wi-Fi after install. **No CLI, no Docker, no ESPHome install.** Trade-off: you can't change what's baked in until you OTA-reflash with your own YAML + secrets. |
+| **YAML + `esphome run`** (this guide) | You want to control your own secrets, encryption key, OTA password, or are running on hardware the web flasher doesn't have a manifest for. | Full control. Local edit-compile-flash loop. |
+
+If web-flasher fits, jump to it — the page handles everything below. The rest
+of this doc is for the YAML path.
+
 ## 1. Install the external component
 
 ```yaml
