@@ -63,8 +63,14 @@ void ProFlame2UI::setup() {
       if (v == old) {
         return;
       }
-      const int direction = (v > old) ? +1 : -1;
+      int direction = (v > old) ? +1 : -1;
       this->last_encoder_value_ = v;
+      // Optional software invert — flip the sign at the entry point so
+      // every downstream handler still sees a normalised "+1 / -1".
+      if (this->encoder_invert_switch_ != nullptr &&
+          this->encoder_invert_switch_->state) {
+        direction = -direction;
+      }
       this->on_encoder_delta_(direction);
     });
   } else {
@@ -94,13 +100,17 @@ void ProFlame2UI::setup() {
 }
 
 void ProFlame2UI::loop() {
-  // Backlight auto-off after kBacklightIdleMs of no input. Anything that
+  // Backlight auto-off after backlight_idle_ms_() of no input. Anything that
   // bumps last_interaction_ms_ in the input handlers also calls
   // wake_backlight_(), so the screen returns immediately on a key press
   // even if the actual reconciliation here is on the next loop tick.
+  // When clock-on-idle is enabled, the backlight stays on past the timeout
+  // and draw() switches to the clock view instead — same ms threshold.
   if (this->backlight_ != nullptr) {
     const uint32_t idle_ms = millis() - this->last_interaction_ms_;
-    const bool should_be_on = idle_ms < kBacklightIdleMs;
+    const bool past_timeout = idle_ms >= this->backlight_idle_ms_();
+    const bool clock_active = this->is_clock_screensaver_active_();
+    const bool should_be_on = !past_timeout || clock_active;
     if (this->backlight_->remote_values.is_on() != should_be_on) {
       auto call = should_be_on ? this->backlight_->turn_on()
                                : this->backlight_->turn_off();
@@ -108,6 +118,38 @@ void ProFlame2UI::loop() {
       call.perform();
     }
   }
+}
+
+uint32_t ProFlame2UI::backlight_idle_ms_() const {
+  if (this->backlight_timeout_select_ == nullptr) {
+    return kBacklightIdleMs;
+  }
+  const auto opt = this->backlight_timeout_select_->current_option();
+  if (opt.empty()) {
+    // Select hasn't restored yet — fall back to default until it does.
+    return kBacklightIdleMs;
+  }
+  const char *s = opt.c_str();
+  if (std::strcmp(s, "never") == 0) return UINT32_MAX;
+  if (std::strcmp(s, "15s")   == 0) return 15000;
+  if (std::strcmp(s, "30s")   == 0) return 30000;
+  if (std::strcmp(s, "1m")    == 0) return 60000;
+  if (std::strcmp(s, "5m")    == 0) return 300000;
+  return kBacklightIdleMs;
+}
+
+bool ProFlame2UI::is_clock_screensaver_active_() const {
+  if (this->clock_on_idle_switch_ == nullptr ||
+      !this->clock_on_idle_switch_->state) {
+    return false;
+  }
+  if (this->time_ == nullptr) {
+    return false;
+  }
+  // Don't kick in until we've actually exceeded the (configured) backlight
+  // timeout — otherwise the clock would replace the active UI instantly.
+  const uint32_t idle_ms = millis() - this->last_interaction_ms_;
+  return idle_ms >= this->backlight_idle_ms_();
 }
 
 void ProFlame2UI::wake_backlight_() {
@@ -236,13 +278,11 @@ void ProFlame2UI::on_button_release_() {
     return;
   }
 
-  // Settings page: dispatch click here. Long-press inside settings exits
-  // back to idle (escape hatch from anywhere).
+  // Settings page: short click activates the highlighted item; long-press
+  // is a no-op (use the BACK item to exit). Silencing long-press here also
+  // stops it falling through to learn-mode start.
   if (this->view_ == View::kSettings) {
-    if (long_press) {
-      this->view_ = View::kIdle;
-      ESP_LOGI(TAG, "Settings → exiting (long press)");
-    } else {
+    if (!long_press) {
       this->on_settings_click_();
     }
     return;
@@ -276,12 +316,6 @@ void ProFlame2UI::on_button_release_() {
     // skip to the next navigable field instead.
     if (!this->is_field_navigable_(this->selected_)) {
       this->cycle_selection_();
-      return;
-    }
-    if (this->selected_ == Field::kInfo) {
-      this->view_ = View::kInfo;
-      this->cycle_selection_();
-      ESP_LOGI(TAG, "Info menu → opening info screen");
       return;
     }
     if (this->selected_ == Field::kSettings) {
@@ -379,9 +413,8 @@ void ProFlame2UI::apply_delta_to_selected_(int direction) {
     case Field::kSecondary:
       this->parent_->set_secondary_flame(direction > 0);
       break;
-    case Field::kInfo:
     case Field::kSettings:
-      // Click-action menu items — rotation is a no-op. Don't fall through to
+      // Click-action menu item — rotation is a no-op. Don't fall through to
       // queue_send.
       return;
     case Field::kFlame: {
@@ -422,7 +455,6 @@ const char *ProFlame2UI::field_label_(Field f) const {
     case Field::kSecondary: return "SEC FLAME";
     case Field::kLight:     return "LIGHT";
     case Field::kSettings:  return "SETTINGS";
-    case Field::kInfo:      return "INFO";
     default:                return "?";
   }
 }
@@ -451,19 +483,22 @@ int ProFlame2UI::field_value_(Field f) const {
       return state.power ? state.light_level
                          : this->parent_->get_remembered_light_level();
     case Field::kSettings:  return 0;
-    case Field::kInfo:      return 0;
     default:                return 0;
   }
 }
 
 const char *ProFlame2UI::setting_label_(SettingItem s) const {
   switch (s) {
-    case SettingItem::kLeds:         return "LEDs";
-    case SettingItem::kBatteryBar:   return "BATTERY BAR";
-    case SettingItem::kClearPairing: return "CLEAR PAIRING";
-    case SettingItem::kReboot:       return "REBOOT";
-    case SettingItem::kBack:         return "BACK";
-    default:                         return "?";
+    case SettingItem::kLeds:             return "LEDs";
+    case SettingItem::kBatteryBar:       return "BATTERY BAR";
+    case SettingItem::kClockOnIdle:      return "CLOCK ON IDLE";
+    case SettingItem::kBacklightTimeout: return "BACKLIGHT";
+    case SettingItem::kEncoderInvert:    return "INVERT ENCODER";
+    case SettingItem::kInfo:             return "DEVICE INFO";
+    case SettingItem::kClearPairing:     return "CLEAR PAIRING";
+    case SettingItem::kReboot:           return "REBOOT";
+    case SettingItem::kBack:             return "BACK";
+    default:                             return "?";
   }
 }
 
@@ -474,12 +509,34 @@ const char *ProFlame2UI::setting_value_(SettingItem s) const {
                  ? "ON"
                  : "OFF";
     case SettingItem::kBatteryBar:
-      // Default to ON when the switch isn't wired (matches draw_status_bar_'s
-      // null-as-bar fallback). Surfaces the actual switch state when bound.
       return (this->battery_bar_switch_ == nullptr ||
               this->battery_bar_switch_->state)
                  ? "ON"
                  : "OFF";
+    case SettingItem::kClockOnIdle:
+      return (this->clock_on_idle_switch_ != nullptr &&
+              this->clock_on_idle_switch_->state)
+                 ? "ON"
+                 : "OFF";
+    case SettingItem::kEncoderInvert:
+      return (this->encoder_invert_switch_ != nullptr &&
+              this->encoder_invert_switch_->state)
+                 ? "ON"
+                 : "OFF";
+    case SettingItem::kBacklightTimeout:
+      // Surfaces the current select option ("30s", "1m", etc.) inline so
+      // users don't have to enter an edit mode just to see it.
+      if (this->backlight_timeout_select_ != nullptr) {
+        const auto cur = this->backlight_timeout_select_->current_option();
+        if (!cur.empty()) {
+          // Static buffer is fine — single-threaded display path.
+          static char buf[8];
+          std::snprintf(buf, sizeof(buf), "%s", cur.c_str());
+          return buf;
+        }
+      }
+      return "30s";
+    case SettingItem::kInfo:
     case SettingItem::kClearPairing:
     case SettingItem::kReboot:
     case SettingItem::kBack:
@@ -501,6 +558,12 @@ void ProFlame2UI::draw(display::Display &it) {
   if (this->parent_->get_learn_state() !=
       ProFlame2Component::LearnState::kIdle) {
     this->draw_learn_(it, width, height);
+    return;
+  }
+  // Clock screensaver wins over kIdle / kInfo / kSettings — once the user is
+  // idle past the backlight timeout, we always show time (when enabled).
+  if (this->is_clock_screensaver_active_()) {
+    this->draw_clock_(it, width, height);
     return;
   }
   if (this->view_ == View::kInfo) {
@@ -613,6 +676,53 @@ void ProFlame2UI::on_settings_click_() {
         ESP_LOGI(TAG, "Settings: BATTERY BAR → %s", new_state ? "ON" : "OFF");
       }
       return;
+    case SettingItem::kClockOnIdle:
+      if (this->clock_on_idle_switch_ != nullptr) {
+        const bool new_state = !this->clock_on_idle_switch_->state;
+        if (new_state) {
+          this->clock_on_idle_switch_->turn_on();
+        } else {
+          this->clock_on_idle_switch_->turn_off();
+        }
+        ESP_LOGI(TAG, "Settings: CLOCK ON IDLE → %s", new_state ? "ON" : "OFF");
+      }
+      return;
+    case SettingItem::kEncoderInvert:
+      if (this->encoder_invert_switch_ != nullptr) {
+        const bool new_state = !this->encoder_invert_switch_->state;
+        if (new_state) {
+          this->encoder_invert_switch_->turn_on();
+        } else {
+          this->encoder_invert_switch_->turn_off();
+        }
+        ESP_LOGI(TAG, "Settings: INVERT ENCODER → %s", new_state ? "ON" : "OFF");
+      }
+      return;
+    case SettingItem::kBacklightTimeout:
+      // Cycle through the select's options on each click. Wraps at the end.
+      if (this->backlight_timeout_select_ != nullptr) {
+        const auto &opts = this->backlight_timeout_select_->traits.get_options();
+        if (!opts.empty()) {
+          const auto cur = this->backlight_timeout_select_->current_option();
+          size_t idx = 0;
+          for (size_t i = 0; i < opts.size(); i++) {
+            if (opts[i] != nullptr && !cur.empty() &&
+                std::strcmp(cur.c_str(), opts[i]) == 0) {
+              idx = (i + 1) % opts.size();
+              break;
+            }
+          }
+          auto call = this->backlight_timeout_select_->make_call();
+          call.set_option(std::string{opts[idx]});
+          call.perform();
+          ESP_LOGI(TAG, "Settings: BACKLIGHT → %s", opts[idx]);
+        }
+      }
+      return;
+    case SettingItem::kInfo:
+      this->view_ = View::kInfo;
+      ESP_LOGI(TAG, "Settings: opening device info");
+      return;
     case SettingItem::kClearPairing:
       ESP_LOGI(TAG, "Settings: clearing pairing → reboot");
       // Component handles NVS-invalidate + safe_reboot internally.
@@ -639,36 +749,77 @@ void ProFlame2UI::on_settings_rotate_(int direction) {
            this->setting_label_(this->selected_setting_));
 }
 
+void ProFlame2UI::draw_clock_(display::Display &it, int width, int height) {
+  if (this->time_ == nullptr) {
+    return;
+  }
+  const auto now = this->time_->now();
+  if (!now.is_valid()) {
+    // Time hasn't synced yet — fall back to the normal idle screen so the
+    // user isn't staring at "--:--" until HA sends a clock packet.
+    this->draw_idle_(it, width, height);
+    return;
+  }
+
+  // Big HH:MM centered. Date below in font_medium for orientation.
+  char hh_mm[8];
+  std::snprintf(hh_mm, sizeof(hh_mm), "%02u:%02u",
+                static_cast<unsigned>(now.hour),
+                static_cast<unsigned>(now.minute));
+
+  if (this->font_large_ != nullptr) {
+    it.print(width / 2, height / 2 - 18, this->font_large_, kAccent,
+             display::TextAlign::CENTER, hh_mm);
+  } else if (this->font_medium_ != nullptr) {
+    it.print(width / 2, height / 2 - 18, this->font_medium_, kAccent,
+             display::TextAlign::CENTER, hh_mm);
+  }
+
+  // ESPTime's day_of_week is 1..7 starting Sunday; format builds a short
+  // "Wed Apr 29" line below the time so the page isn't info-free if the
+  // user glances over.
+  static const char *const kDow[] = {"", "Sun", "Mon", "Tue", "Wed",
+                                     "Thu", "Fri", "Sat"};
+  static const char *const kMon[] = {"",    "Jan", "Feb", "Mar", "Apr",
+                                     "May", "Jun", "Jul", "Aug", "Sep",
+                                     "Oct", "Nov", "Dec"};
+  char date_buf[24];
+  const unsigned dow = now.day_of_week;
+  const unsigned month = now.month;
+  std::snprintf(date_buf, sizeof(date_buf), "%s %s %u",
+                (dow >= 1 && dow <= 7) ? kDow[dow] : "",
+                (month >= 1 && month <= 12) ? kMon[month] : "",
+                static_cast<unsigned>(now.day_of_month));
+  if (this->font_medium_ != nullptr) {
+    it.print(width / 2, height / 2 + 30, this->font_medium_, kDim,
+             display::TextAlign::CENTER, date_buf);
+  } else if (this->font_small_ != nullptr) {
+    it.print(width / 2, height / 2 + 30, this->font_small_, kDim,
+             display::TextAlign::CENTER, date_buf);
+  }
+}
+
 void ProFlame2UI::draw_settings_(display::Display &it, int width, int height) {
   this->draw_status_bar_(it, width);
 
-  // Title row — orient the user that they're inside Settings, not the main
-  // field list.
-  if (this->font_medium_ != nullptr) {
-    it.print(width / 2, 30, this->font_medium_, kAccent,
-             display::TextAlign::TOP_CENTER, "SETTINGS");
-  }
-
-  // Scrollable list. Same row-spacing math as draw_idle_ so the two pages
-  // feel uniform.
-  const int top = 56;
-  const int bottom_reserve = 14;
+  // 9 items don't fit at the same row height as the main page (which uses
+  // font_medium for the selected row). We use font_small uniformly here and
+  // signal selection via cursor + color only — keeps every row at ~14 px.
+  // No title / hint rows; the BACK item at the bottom is the exit affordance.
+  const int top = 22;
+  const int bottom_reserve = 8;
   const int rows = static_cast<int>(SettingItem::kCount);
   const int row_h = (height - top - bottom_reserve) / rows;
+
+  if (this->font_small_ == nullptr) {
+    return;
+  }
+  font::Font *text_font = this->font_small_;
 
   for (int i = 0; i < rows; i++) {
     const SettingItem s = static_cast<SettingItem>(i);
     const bool selected = (s == this->selected_setting_);
     const int center_y = top + i * row_h + row_h / 2;
-
-    font::Font *text_font = selected ? this->font_medium_ : this->font_small_;
-    if (text_font == nullptr) {
-      text_font = this->font_small_ != nullptr ? this->font_small_
-                                               : this->font_medium_;
-    }
-    if (text_font == nullptr) {
-      continue;
-    }
 
     if (selected) {
       it.print(4, center_y, text_font, kAccent,
@@ -689,6 +840,18 @@ void ProFlame2UI::draw_settings_(display::Display &it, int width, int height) {
       const bool on = (this->battery_bar_switch_ == nullptr ||
                        this->battery_bar_switch_->state);
       value_color = on ? kGreen : kDim;
+    } else if (s == SettingItem::kClockOnIdle) {
+      const bool on = (this->clock_on_idle_switch_ != nullptr &&
+                       this->clock_on_idle_switch_->state);
+      value_color = on ? kGreen : kDim;
+    } else if (s == SettingItem::kEncoderInvert) {
+      const bool on = (this->encoder_invert_switch_ != nullptr &&
+                       this->encoder_invert_switch_->state);
+      value_color = on ? kGreen : kDim;
+    } else if (s == SettingItem::kBacklightTimeout) {
+      // Always rendered in white so the value reads as text rather than a
+      // toggle. Selection still tints the label kAccent above.
+      value_color = kWhite;
     } else {
       value_color = selected ? kAccent : kDim;
     }
@@ -696,12 +859,6 @@ void ProFlame2UI::draw_settings_(display::Display &it, int width, int height) {
               display::TextAlign::CENTER_RIGHT, "%s", value);
   }
 
-  // Hint at the bottom of the screen so users know how to escape.
-  if (this->font_small_ != nullptr) {
-    it.print(width / 2, height - 4, this->font_small_, kDim,
-             display::TextAlign::BOTTOM_CENTER,
-             "long-press: exit");
-  }
 }
 
 void ProFlame2UI::draw_idle_(display::Display &it, int width, int height) {
@@ -759,7 +916,6 @@ void ProFlame2UI::draw_idle_(display::Display &it, int width, int height) {
     Color value_color = kWhite;
     const int v = this->field_value_(f);
     switch (f) {
-      case Field::kInfo:
       case Field::kSettings:
         std::snprintf(raw_buf, sizeof(raw_buf), ">>");
         value_color = selected ? kAccent : kDim;

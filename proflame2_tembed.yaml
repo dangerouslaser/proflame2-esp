@@ -244,6 +244,18 @@ proflame2:
     # Toggles the status-bar battery indicator between graphical bar (ON)
     # and "BAT NN%" text (OFF). Default: ON.
     battery_bar_switch: battery_as_bar
+    # When ON, the LCD shows a clock when the user has been idle past the
+    # backlight timeout, instead of going dark. Requires the time: source
+    # below. Default: OFF (preserves battery).
+    clock_on_idle_switch: clock_on_idle
+    # Software-flips encoder rotation direction. Default: OFF.
+    encoder_invert_switch: encoder_inverted
+    # Drives the idle timeout — options 15s / 30s / 1m / 5m / never.
+    # Default: 30s (matches the previous hard-coded value).
+    backlight_timeout_select: backlight_timeout
+    # Clock source for the screensaver. Same homeassistant_time: id used
+    # at the bottom of this YAML.
+    time: homeassistant_time
     fonts:
       small: font_sm
       medium: font_md
@@ -358,6 +370,47 @@ switch:
     icon: "mdi:battery-50"
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  # When ON, the LCD shows a clock once the user is idle past the backlight
+  # timeout (instead of going dark). Off-by-default to preserve battery.
+  - platform: template
+    id: clock_on_idle
+    name: "Clock on Idle"
+    icon: "mdi:clock-outline"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+  # Flips encoder rotation direction in software. Useful if the physical
+  # encoder feels backwards (some T-Embed batches have differing detent
+  # polarity). Off-by-default — only flip if you've confirmed the direction
+  # feels wrong.
+  - platform: template
+    id: encoder_inverted
+    name: "Invert Encoder Direction"
+    icon: "mdi:rotate-360"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+select:
+  # Drives the LCD backlight idle timeout (and, when clock_on_idle is on,
+  # the screensaver activation threshold). String options match what the
+  # UI's backlight_idle_ms_() helper parses.
+  - platform: template
+    id: backlight_timeout
+    name: "Backlight Timeout"
+    icon: "mdi:lightbulb-on-outline"
+    options:
+      - "15s"
+      - "30s"
+      - "1m"
+      - "5m"
+      - "never"
+    initial_option: "30s"
+    optimistic: true
+    restore_value: true
     entity_category: config
 
 button:

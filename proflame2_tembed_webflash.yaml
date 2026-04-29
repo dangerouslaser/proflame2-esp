@@ -196,6 +196,10 @@ proflame2:
     backlight: lcd_backlight
     leds_switch: leds_enabled
     battery_bar_switch: battery_as_bar
+    clock_on_idle_switch: clock_on_idle
+    encoder_invert_switch: encoder_inverted
+    backlight_timeout_select: backlight_timeout
+    time: homeassistant_time
     fonts:
       small: font_sm
       medium: font_md
@@ -275,6 +279,38 @@ switch:
     icon: "mdi:battery-50"
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: clock_on_idle
+    name: "Clock on Idle"
+    icon: "mdi:clock-outline"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+  - platform: template
+    id: encoder_inverted
+    name: "Invert Encoder Direction"
+    icon: "mdi:rotate-360"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+select:
+  - platform: template
+    id: backlight_timeout
+    name: "Backlight Timeout"
+    icon: "mdi:lightbulb-on-outline"
+    options:
+      - "15s"
+      - "30s"
+      - "1m"
+      - "5m"
+      - "never"
+    initial_option: "30s"
+    optimistic: true
+    restore_value: true
     entity_category: config
 
 button:

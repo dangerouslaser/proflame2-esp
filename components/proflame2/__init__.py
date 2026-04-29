@@ -12,6 +12,8 @@ from esphome.components import (
     display,
     font,
     text_sensor,
+    select,
+    time as time_,
 )
 from esphome.const import (
     CONF_ID,
@@ -129,6 +131,10 @@ CONF_BATTERY_SENSOR = "battery_sensor"
 CONF_BACKLIGHT = "backlight"
 CONF_LEDS_SWITCH = "leds_switch"
 CONF_BATTERY_BAR_SWITCH = "battery_bar_switch"
+CONF_CLOCK_ON_IDLE_SWITCH = "clock_on_idle_switch"
+CONF_ENCODER_INVERT_SWITCH = "encoder_invert_switch"
+CONF_BACKLIGHT_TIMEOUT_SELECT = "backlight_timeout_select"
+CONF_TIME = "time"
 CONF_FONTS = "fonts"
 CONF_FONT_SMALL = "small"
 CONF_FONT_MEDIUM = "medium"
@@ -193,6 +199,10 @@ UI_SCHEMA = cv.Schema(
         cv.Optional(CONF_BACKLIGHT): cv.use_id(light.LightState),
         cv.Optional(CONF_LEDS_SWITCH): cv.use_id(switch.Switch),
         cv.Optional(CONF_BATTERY_BAR_SWITCH): cv.use_id(switch.Switch),
+        cv.Optional(CONF_CLOCK_ON_IDLE_SWITCH): cv.use_id(switch.Switch),
+        cv.Optional(CONF_ENCODER_INVERT_SWITCH): cv.use_id(switch.Switch),
+        cv.Optional(CONF_BACKLIGHT_TIMEOUT_SELECT): cv.use_id(select.Select),
+        cv.Optional(CONF_TIME): cv.use_id(time_.RealTimeClock),
         cv.Required(CONF_FONTS): UI_FONTS_SCHEMA,
     }
 )
@@ -458,6 +468,18 @@ async def to_code(config):
         if CONF_BATTERY_BAR_SWITCH in conf:
             bb_sw = await cg.get_variable(conf[CONF_BATTERY_BAR_SWITCH])
             cg.add(ui.set_battery_bar_switch(bb_sw))
+        if CONF_CLOCK_ON_IDLE_SWITCH in conf:
+            cli_sw = await cg.get_variable(conf[CONF_CLOCK_ON_IDLE_SWITCH])
+            cg.add(ui.set_clock_on_idle_switch(cli_sw))
+        if CONF_ENCODER_INVERT_SWITCH in conf:
+            ei_sw = await cg.get_variable(conf[CONF_ENCODER_INVERT_SWITCH])
+            cg.add(ui.set_encoder_invert_switch(ei_sw))
+        if CONF_BACKLIGHT_TIMEOUT_SELECT in conf:
+            bt_sel = await cg.get_variable(conf[CONF_BACKLIGHT_TIMEOUT_SELECT])
+            cg.add(ui.set_backlight_timeout_select(bt_sel))
+        if CONF_TIME in conf:
+            t = await cg.get_variable(conf[CONF_TIME])
+            cg.add(ui.set_time(t))
         fonts = conf[CONF_FONTS]
         font_small = await cg.get_variable(fonts[CONF_FONT_SMALL])
         font_medium = await cg.get_variable(fonts[CONF_FONT_MEDIUM])

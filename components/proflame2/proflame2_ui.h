@@ -11,6 +11,8 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/font/font.h"
 #include "esphome/components/light/light_state.h"
+#include "esphome/components/select/select.h"
+#include "esphome/components/time/real_time_clock.h"
 
 #include "proflame2_cc1101.h"
 
@@ -48,6 +50,21 @@ class ProFlame2UI : public Component {
   // source-of-truth pattern as leds_switch_ — accessible from HA and from
   // the on-device settings page.
   void set_battery_bar_switch(switch_::Switch *s) { battery_bar_switch_ = s; }
+  // Optional. When ON, the LCD shows a large HH:MM clock when the user is
+  // idle past the backlight timeout, instead of turning the backlight off.
+  // Requires set_time() to be wired so we have a clock source.
+  void set_clock_on_idle_switch(switch_::Switch *s) { clock_on_idle_switch_ = s; }
+  // Optional. When ON, encoder rotation direction is flipped — useful for
+  // users whose physical encoder feels backwards. Read at delta time so
+  // nothing else has to know.
+  void set_encoder_invert_switch(switch_::Switch *s) { encoder_invert_switch_ = s; }
+  // Optional. Template select with options "15s" / "30s" / "1m" / "5m" /
+  // "never" controlling how long until the backlight goes off (or the clock
+  // screensaver activates) on idle. Falls back to 30 s when unset.
+  void set_backlight_timeout_select(select::Select *s) { backlight_timeout_select_ = s; }
+  // Optional. Time source for the clock screensaver. Anything inheriting
+  // from RealTimeClock works (homeassistant_time, sntp, etc).
+  void set_time(time::RealTimeClock *t) { time_ = t; }
   void set_font_small(font::Font *f) { font_small_ = f; }
   void set_font_medium(font::Font *f) { font_medium_ = f; }
   void set_font_large(font::Font *f) { font_large_ = f; }
@@ -72,18 +89,16 @@ class ProFlame2UI : public Component {
   };
 
   // Listed in the cycle order the UI will walk through on encoder rotation
-  // in navigate mode. kInfo and kSettings are "menu action" entries: clicking
-  // them skips edit mode and opens the corresponding overlay screen directly.
-  // Rotation in kEdit on those is a no-op.
+  // in navigate mode. kSettings is a "menu action" entry: clicking it skips
+  // edit mode and opens the settings overlay. Rotation in kEdit on it is a
+  // no-op. (Info now lives inside the settings page.)
   enum class Field : uint8_t {
     kFlame = 0,
     kFan,
     kLight,
     kSecondary,
     kPower,
-    kSettings,  // Click → opens the settings list page (LEDs, Clear Pairing,
-                // Reboot, ...). Cog-iconned in the row.
-    kInfo,
+    kSettings,
     kCount,
   };
 
@@ -102,6 +117,10 @@ class ProFlame2UI : public Component {
   enum class SettingItem : uint8_t {
     kLeds = 0,
     kBatteryBar,
+    kClockOnIdle,
+    kBacklightTimeout,
+    kEncoderInvert,
+    kInfo,           // Opens the read-only diagnostic info screen.
     kClearPairing,
     kReboot,
     kBack,
@@ -141,6 +160,16 @@ class ProFlame2UI : public Component {
   void draw_info_(display::Display &it, int width, int height);
   void draw_learn_(display::Display &it, int width, int height);
   void draw_settings_(display::Display &it, int width, int height);
+  void draw_clock_(display::Display &it, int width, int height);
+
+  // Effective backlight idle timeout in ms. Reads backlight_timeout_select_
+  // when wired ("15s" / "30s" / "1m" / "5m" / "never" → ms / UINT32_MAX),
+  // falls back to kBacklightIdleMs when unset.
+  uint32_t backlight_idle_ms_() const;
+  // True iff the user has been idle past the backlight timeout AND the
+  // clock-on-idle switch is on AND we have a time source. The clock view
+  // wins over kIdle / kInfo / kSettings (but not learn).
+  bool is_clock_screensaver_active_() const;
 
   const char *field_label_(Field f) const;
   int field_value_(Field f) const;
@@ -179,6 +208,17 @@ class ProFlame2UI : public Component {
   // Optional — same pattern as leds_switch_, gates the status-bar battery
   // bar (vs. "BAT NN%" text fallback when off / unset).
   switch_::Switch *battery_bar_switch_{nullptr};
+  // Optional — when ON and the user is idle past the backlight timeout,
+  // the LCD draws a large clock instead of going dark. Requires time_.
+  switch_::Switch *clock_on_idle_switch_{nullptr};
+  // Optional — flips encoder rotation direction in software when ON.
+  switch_::Switch *encoder_invert_switch_{nullptr};
+  // Optional — drives kBacklightIdleMs at runtime ("15s" / "30s" / "1m" /
+  // "5m" / "never"). Falls back to 30 s if unset.
+  select::Select *backlight_timeout_select_{nullptr};
+  // Optional — clock source for the screensaver. Null = clock-on-idle is
+  // a no-op (we never have a time to draw).
+  time::RealTimeClock *time_{nullptr};
 
   font::Font *font_small_{nullptr};
   font::Font *font_medium_{nullptr};
