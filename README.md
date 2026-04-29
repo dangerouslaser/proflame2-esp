@@ -5,6 +5,7 @@ from Home Assistant (or HomeKit, via the HA bridge), no cloud — over OOK 314.9
 MHz RF using a CC1101 radio.
 
 <img src="/img/Dashboard.jpg"></img>
+<img src="/img/proflame2-esp-device.jpeg"></img>
 
 ---
 
