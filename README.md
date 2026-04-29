@@ -12,7 +12,7 @@ Two hardware paths supported:
   works when HA is offline AND on-device learn-mode pairing (no SDR needed).
   Example: [`proflame2_tembed.yaml`](./proflame2_tembed.yaml).
 
-This fork (`dangerouslaser/proflame2-esp`) adds:
+Key capabilities:
 
 - A real `climate` entity (HEAT/OFF thermostat) so HA's HomeKit bridge can
   expose the fireplace as a Thermostat / HeaterCooler accessory with the room
@@ -48,8 +48,9 @@ This fork (`dangerouslaser/proflame2-esp`) adds:
   ESPHome dashboard at `http://<device>/` is a fully usable manual UI when
   HA is unreachable. See [Standalone web UI](#standalone-web-ui).
 
-Inherited from prior forks (marksieczkowski → j2deen): ESP-IDF framework,
-secondary flame support, non-blocking TX state machine.
+(Earlier work that this codebase builds on — original RE, the ESPHome
+component skeleton, the rtl_433 protocol decoder we ported, the rtl_433_ESP
+RX architecture — is acknowledged in [Credits](#credits).)
 
 ## Features
 
@@ -283,7 +284,7 @@ cursor highlights one field at a time.
 
 **Encoder gestures**:
 - **Rotate** in *navigate* mode — moves the cursor through fields in
-  order: FLAME → FAN → LIGHT → SEC FLAME → POWER → LEDs ⚙ → INFO.
+  order: FLAME → FAN → LIGHT → SEC FLAME → POWER → LEDs → INFO.
 - **Click** a binary field (POWER, SEC FLAME, LEDs) — toggles it.
 - **Click** a numeric field (FLAME, FAN, LIGHT) — enters *edit* mode.
 - **Rotate** in *edit* mode — adjusts the field's value (clamped 0–6).
@@ -339,6 +340,9 @@ remote and recovers serial + all four ECC constants algebraically.
    values displayed in green. **Hold the encoder button** to commit. Short-
    press cancels.
 6. The screen briefly shows "Saved." and returns to the normal state.
+7. **Pull the batteries from your OEM remote.** See
+   [After pairing](#-after-pairing-pull-the-batteries-from-your-oem-remote)
+   below — without this step the OEM remote will fight the ESP32.
 
 Done. The pairing is in NVS and survives reboots. `dump_config()` after the
 next reboot will report `Serial Number: 0x… (NVS v1 (learned))`.
@@ -375,6 +379,9 @@ without it.
    NVS, and the device logs `Learned values committed`.
 6. Click **Cancel Pairing** at any point to abort the listening window
    without committing.
+7. **Pull the batteries from your OEM remote.** See
+   [After pairing](#-after-pairing-pull-the-batteries-from-your-oem-remote)
+   below — without this step the OEM remote will fight the ESP32.
 
 The same safety gates from the T-Embed flow apply — packets must agree
 byte-for-byte, checksum cross-validates, etc. The only difference is the
@@ -383,6 +390,34 @@ ESP32 trusts the HA button click. If you'd rather not expose the
 `pair_confirm` button in HA, you can omit it from your YAML and instead
 write a YAML automation that calls `learn_confirm()` after some other
 trigger (e.g. a separate physical GPIO button).
+
+## ⚠️ After pairing: pull the batteries from your OEM remote
+
+Both on-device learn-mode and the SDR-capture-then-YAML flow **clone**
+your existing OEM remote — the ESP32 and the OEM remote now share the
+same 24-bit serial and the same ECC pairing constants. The fireplace
+receiver treats packets from either one as equally authoritative; it
+has no way to tell them apart.
+
+If the OEM remote stays powered, **its packets will override the
+ESP32**. Symptoms:
+
+- HA shows the burner ON but it's actually OFF (or vice versa).
+- Settings appear to revert seconds after you change them in HA.
+- Climate-driven heat cycles get clobbered by stray remote presses.
+- A bump to the remote in a drawer triggers a real fireplace command.
+
+**Fix: pull the batteries from the OEM remote.** Keep them somewhere
+safe — you may want the remote later for fallback control, or to
+re-clone if NVS gets wiped.
+
+This does **not** apply if you went the *"pair as a new remote"* route
+in [Capture options](#capture-options) (option 3). That flow puts the
+fireplace receiver into pairing mode and *replaces* the OEM remote's
+identity with the ESP32's; the OEM remote stops working entirely, so
+there's nothing left to fight the ESP32. If you want a single-source
+setup with no battery-pulling required, that's the path to take —
+trade-off is a one-way trip until you re-pair the OEM remote.
 
 ## Pairing via SDR (any board)
 
@@ -420,9 +455,10 @@ proflame2:
     d2: 0x07
 ```
 
-The defaults shipped in this fork are for the maintainer's pairing
-(serial `0x320A02`). **They almost certainly won't work for your fireplace
-unaltered.**
+The example YAMLs ship with placeholder values that **almost certainly
+won't work for your fireplace unaltered**. You need either to capture
+your remote's pairing identity (this section) or to pair the ESP32 itself
+as the active remote (option 3 in [Capture options](#capture-options)).
 
 ### Deriving (c, d) from a captured packet
 
@@ -546,6 +582,12 @@ the pairing identity is encoded.
   or wrong ECC `(c, d)`. On the T-Embed, just run on-device learn-mode
   (long-press encoder, point at OEM remote, confirm). On any board, the
   HA `Pair Remote` / `Confirm Pairing` buttons do the same.
+- **Settings revert seconds after I change them / fireplace state desyncs
+  from HA** → if you cloned the OEM remote (anything that isn't option 3
+  in [Capture options](#capture-options)), both devices share the same
+  identity and the receiver honors whichever speaks last. Pull the batteries
+  from the OEM remote — see
+  [After pairing](#-after-pairing-pull-the-batteries-from-your-oem-remote).
 - **Pairing never converges** → confirm `gdo0_pin` is wired (plain ESP32
   builds RX-disabled by default), and that the OEM remote is held within
   ~30 cm of the ESP32. Check the logs for `decode: chips=… pkts=…` lines —
@@ -602,14 +644,15 @@ much code / architecture we pulled from each:
   all came out of this work.
 - **FCC ID `T99058402300`** — the OEM remote's filing has the protocol
   documentation that confirms baud rate, modulation, and frequency.
-- **[j2deen/proflame2-esp](https://github.com/j2deen/proflame2-esp)** and
-  the parent **[marksieczkowski/proflame2-esp](https://github.com/marksieczkowski/proflame2-esp)**
-  — the original ESPHome external-component skeleton, ESP-IDF framework
-  setup, secondary-flame support, and non-blocking TX state machine. This
-  project began as a fork of j2deen's work; it has since been detached
-  from the fork network as it diverged substantially (ESP32-S3 / T-Embed
-  target, RX path, on-device learn-mode, climate, light, state restoration,
-  device UI, LED strip, web UI).
+- **[j2deen/proflame2-esp](https://github.com/j2deen/proflame2-esp)** —
+  the original ESPHome external-component for ProFlame 2: component
+  skeleton, ESP-IDF framework setup, secondary-flame support, and
+  non-blocking TX state machine. **[marksieczkowski/proflame2-esp](https://github.com/marksieczkowski/proflame2-esp)**
+  is an intermediate fork of j2deen's; this project began as a fork of
+  *that* and has since been detached from the fork network as it
+  diverged substantially (ESP32-S3 / T-Embed target, RX path, on-device
+  learn-mode, climate, light, state restoration, device UI, LED strip,
+  web UI).
 - **[LSatan/SmartRC-CC1101-Driver-Lib](https://github.com/LSatan/SmartRC-CC1101-Driver-Lib)**
   — early reference for CC1101 register programming patterns and the
   PA-table values used at 314.973 MHz.
