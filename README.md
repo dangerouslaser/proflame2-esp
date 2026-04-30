@@ -115,7 +115,7 @@ much code / architecture we pulled from each:
   architecture, pairing converged in under two seconds.
 - **[johnellinwood/smartfire](https://github.com/johnellinwood/smartfire)**
   — original reverse engineering of the ProFlame 2 RF protocol. The serial
-  + ECC pairing model, command-byte layout, and 5-repeat transmit pattern
+  and ECC pairing model, command-byte layout, and 5-repeat transmit pattern
   all came out of this work.
 - **FCC ID `T99058402300`** — the OEM remote's filing has the protocol
   documentation that confirms baud rate, modulation, and frequency.
