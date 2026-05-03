@@ -41,6 +41,40 @@ Symptoms:
 you may want the remote later for fallback control or to re-clone if NVS gets
 wiped.
 
+### Why pulling batteries matters (it's not just stray button presses)
+
+The OEM remote does not require a button press to transmit. It is
+**stateful and autonomous**: it holds its own model of "what the fireplace
+should be doing" and *re-broadcasts that full state on a timer*, even when
+nothing has touched it. So if your OEM remote thinks `POWER=OFF, flame=0`
+and your ESP turns the burner on, the OEM remote's next periodic broadcast
+will turn it right back off — no handshake, no confirmation, just a
+unilateral re-assertion that the IFC accepts because the serial matches.
+
+Two independent community observations on the timing:
+
+- *"the Proflame remote… has an 11 bit state and sends all 11 bits every
+  time. It does this both when it thinks the user is done [post-press
+  settle] and periodically."* — [Bond Home forum thread][bond]
+- *"The remote proper sends continual updates of it's current state
+  roughly every 9.5 minutes or so."* — [Home Assistant community thread][ha]
+
+So expect symptoms to surface several minutes after an ESP-driven change —
+not seconds — which is what makes this so confusing to debug otherwise.
+Pulling the batteries silences the autonomous heartbeat completely.
+
+There is no two-way protocol you can lean on to detect or counter this.
+The IFC does not transmit back — we verified this empirically by listening
+on 314.973 MHz for ~1.5 s after every TX across many commands and got
+zero packets in return. The OEM remote isn't "checking in" with the
+fireplace; it's just talking to itself on a timer and the IFC happens
+to be listening.
+
+[bond]: https://forum.bondhome.io/t/proflame-2-fireplace-remote/2156
+[ha]: https://community.home-assistant.io/t/proflame-remote/520529
+
+### Option 3 sidesteps all of this
+
 This does **not** apply to option 3 (*"pair as a new remote"*). That flow
 puts the fireplace receiver into pairing mode and *replaces* the OEM remote's
 identity with the ESP32's; the OEM remote stops working entirely, so there's
