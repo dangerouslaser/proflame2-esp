@@ -7,12 +7,22 @@
   (long-press encoder, point at OEM remote, confirm). On any board, the
   HA `Pair Remote` / `Confirm Pairing` buttons do the same. See
   [pairing.md](pairing.md).
-- **Settings revert seconds after I change them / fireplace state desyncs
-  from HA** → if you cloned the OEM remote (anything that isn't option 3
-  in [Capture options](pairing-sdr.md#capture-options)), both devices share
-  the same identity and the receiver honors whichever speaks last. Pull the
-  batteries from the OEM remote — see
+- **Settings revert after I change them / fireplace state desyncs from
+  HA** → if you cloned the OEM remote (anything that isn't option 3 in
+  [Capture options](pairing-sdr.md#capture-options)), both devices share
+  the same identity and the receiver honors whichever speaks last. Pull
+  the batteries from the OEM remote — see
   [After pairing](pairing.md#-after-pairing-pull-the-batteries-from-your-oem-remote).
+- **Fireplace turns itself OFF (or back ON, or to a different setting)
+  ~5–10 minutes after I changed it from HA, with no one touching the
+  OEM remote** → same root cause as the previous bullet, but the
+  symptom is delayed-not-instant because the OEM remote autonomously
+  re-broadcasts its full state about every 9.5 minutes even with no
+  button press. Whatever the OEM remote thinks the fireplace should
+  be doing, it will eventually reassert. Pulling the batteries silences
+  the autonomous heartbeat — see
+  [Why pulling batteries matters](pairing.md#why-pulling-batteries-matters-its-not-just-stray-button-presses)
+  for the mechanism and source citations.
 - **Pairing never converges** → confirm `gdo0_pin` is wired (plain ESP32
   builds RX-disabled by default), and that the OEM remote is held within
   ~30 cm of the ESP32. Check the logs for `decode: chips=… pkts=…` lines —
