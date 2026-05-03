@@ -37,6 +37,13 @@ void ProFlame2Component::learn_cancel() {
     return;
   }
   this->stop_rx_capture();
+  // Same fix learn_confirm() applies: the RX register table leaves
+  // FOCCFG / AGCCTRL2/1/0 at envelope-detector values that the TX table
+  // doesn't reset. Without a full reinit, the next TX after a cancel
+  // emits modulation the IFC can't decode (MARCSTATE looks fine, but the
+  // fireplace doesn't react). Symmetric with learn_confirm — every path
+  // out of learn-mode needs to scrub the radio.
+  this->reinit_radio_();
   this->learn_state_ = LearnState::kIdle;
   this->learn_candidate_ = LearnCandidate{};
   ESP_LOGI(TAG_LEARN, "Learn-mode cancelled");
