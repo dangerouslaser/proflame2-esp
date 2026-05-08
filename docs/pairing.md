@@ -89,7 +89,15 @@ before letting you commit:
 
 - 3+ valid packets within a single 60 s capture window.
 - All packets agree on serial AND all four ECC constants byte-for-byte.
-- Each packet's checksum cross-validates against the inferred `(c, d)`.
+- **At least 2 distinct `cmd1` values AND 2 distinct `cmd2` values** all
+  invert to the same `(c, d)`. Within one button press the OEM remote sends
+  ~5 byte-identical repeats, so "3 packets agree" alone proves nothing —
+  only diversity on both halves of the packet (`cmd1` = power/light/pilot/
+  thermostat; `cmd2` = flame/fan/secondary/aux) actually validates that the
+  inversion formula fits this remote.
+- A second `cmd_byte` that inverts to a *different* `(c, d)` aborts the
+  capture with an `ECC formula mismatch` log line — the formula doesn't
+  fit a non-standard ProFlame variant.
 - Confirmation is a hold (T-Embed) or an explicit HA button click (plain
   ESP32) — no auto-commit on first capture.
 

@@ -86,6 +86,36 @@ for the host-testable decoder logic and
 [`components/proflame2/proflame2_rx.cpp`](../components/proflame2/proflame2_rx.cpp)
 for the ISR + ring buffer.
 
+## Convergence gate (learn-mode)
+
+Once decoded packets reach `on_packet_decoded_` in
+[`proflame2_learn.cpp`](../components/proflame2/proflame2_learn.cpp), the
+candidate must clear three checks before the state machine moves to
+`kConverged` and presents the values for user confirmation:
+
+1. **`valid_packet_count ≥ 3`** — same baseline that's always been there.
+2. **`cmd1.distinct ≥ 2` AND `cmd2.distinct ≥ 2`** — at least two
+   different `cmd1` bytes and two different `cmd2` bytes must have all
+   inverted to the same `(c, d)`. The OEM remote sends ~5 byte-identical
+   repeats per button press, so packet count alone proves nothing — only
+   `cmd_byte` diversity validates that the inversion formula fits this
+   remote.
+3. **No `(c, d)` drift across distinct `cmd_byte`s** — if a *new* `cmd1`
+   or `cmd2` value inverts to a *different* `(c, d)` than the running
+   candidate, the state machine bails to `kFailed` with an `ECC formula
+   mismatch` log line. That's the smoking gun for a non-standard ProFlame
+   variant where the formula in [ECC math](#ecc-math) doesn't apply.
+
+Drift on a *known* `(cmd1, cmd2)` pair (i.e. same input bytes producing
+different `(c, d)` between two packets) is algebraically impossible from
+the formula, so it gets logged as decoder noise (parity-passed bit shift
+etc.) and ignored without disturbing the candidate.
+
+The `CmdHistory` struct in
+[`proflame2_cc1101.h`](../components/proflame2/proflame2_cc1101.h) holds
+the per-axis seen-set: 8-element bounded array, append-if-absent on
+matching packets.
+
 ## Where transmit comes from
 
 [`components/proflame2/proflame2_cc1101.cpp`](../components/proflame2/proflame2_cc1101.cpp)
