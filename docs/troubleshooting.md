@@ -27,7 +27,21 @@
   builds RX-disabled by default), and that the OEM remote is held within
   ~30 cm of the ESP32. Check the logs for `decode: chips=… pkts=…` lines —
   `pkts > 0` means RX is working; if you see only `chips=…` without `pkts`,
-  there's a signal-quality issue.
+  there's a signal-quality issue. If you see `packets agree` lines but the
+  `distinct cmd1=N` or `cmd2=N` counter is stuck at 1, you're only pressing
+  buttons that affect one half of the packet — press something that changes
+  the other half (POWER/LIGHT/PILOT change `cmd1`; FLAME/FAN/SEC change
+  `cmd2`).
+- **Pairing fails immediately with `ECC formula mismatch` in the log** →
+  the on-device learn flow inverts each packet's checksum to recover the
+  per-remote `(c, d)` constants, then validates that *different* button
+  presses (different `cmd_byte`s) all invert to the same `(c, d)`. If they
+  don't, the standard ProFlame inversion formula doesn't fit your remote —
+  most likely a protocol variant with different word order or XOR pattern.
+  Workaround: capture two distinct button presses with rtl_433 / OMG and
+  open an issue with the raw cmd/chk bytes — see the
+  [SDR pairing flow](pairing-sdr.md). The error log line includes both
+  presses' full data so you can reproduce the analysis offline.
 - **TX stalls / fireplace stops responding to commands after a while** →
   a long loop iteration (display redraw, WiFi housekeeping, learn-mode
   service) can underflow the CC1101's TX FIFO. The component

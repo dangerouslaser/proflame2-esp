@@ -175,10 +175,41 @@ class ProFlame2Component : public Component,
     kFailed,       // timeout / mismatch — UI should prompt retry
   };
 
+  // Bounded history of distinct cmd_byte values observed for one ECC axis
+  // during a learn capture. Within one OEM-remote button press the radio
+  // sends ~5 byte-identical repeats, so "N packets agree" is tautological
+  // for a single press — only distinct cmd_bytes can validate that the
+  // inversion formula actually fits this remote. Capped at 8 to keep the
+  // candidate POD-sized; we only need ≥2 distinct values to converge.
+  struct CmdHistory {
+    static constexpr uint8_t kCap = 8;
+    uint8_t seen[kCap]{};
+    uint8_t distinct{0};
+
+    bool contains(uint8_t v) const {
+      for (uint8_t i = 0; i < this->distinct; i++) {
+        if (this->seen[i] == v) return true;
+      }
+      return false;
+    }
+    void record(uint8_t v) {
+      if (this->contains(v)) return;
+      if (this->distinct < kCap) {
+        this->seen[this->distinct++] = v;
+      }
+    }
+    void seed(uint8_t v) {
+      this->seen[0] = v;
+      this->distinct = 1;
+    }
+  };
+
   struct LearnCandidate {
     uint32_t serial{0};
     uint8_t c1{0}, d1{0}, c2{0}, d2{0};
     uint8_t valid_packet_count{0};
+    CmdHistory cmd1{};
+    CmdHistory cmd2{};
   };
 
   // Begin learn: clears the candidate, starts RX, transitions to kListening.
@@ -203,6 +234,14 @@ class ProFlame2Component : public Component,
   // user for confirmation. Public so the UI can include it in its progress
   // indicator.
   static constexpr uint8_t kLearnMinPackets = 3;
+
+  // Distinct cmd1 AND cmd2 values that must invert to the same (c, d) before
+  // we'll converge. With 5 byte-identical repeats per button press, we need
+  // ≥2 different presses that change cmd1 (power/light/pilot/thermostat) AND
+  // ≥2 that change cmd2 (flame/fan/secondary/aux) before the inversion has
+  // actually been validated against a varying input. UI surfaces both
+  // distinct-counts so users know which side still needs a press.
+  static constexpr uint8_t kLearnMinDistinctCmds = 2;
 
   // Where the active serial + ECC came from. UI uses this on the info screen.
   enum class ConfigSource : uint8_t { kYaml, kNvsLearned };

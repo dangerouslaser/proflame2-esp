@@ -1411,13 +1411,28 @@ void ProFlame2UI::draw_learn_(display::Display &it, int width, int height) {
 
   const char *headline = "";
   Color headline_color = white;
+  // While capturing, the headline tells the user *which axis* still needs a
+  // press — convergence requires diversity on both cmd1 and cmd2 so that the
+  // inversion formula is actually validated against varying input.
+  const bool need_more_cmd1 =
+      cand.cmd1.distinct < ProFlame2Component::kLearnMinDistinctCmds;
+  const bool need_more_cmd2 =
+      cand.cmd2.distinct < ProFlame2Component::kLearnMinDistinctCmds;
   switch (state) {
     case LearnState::kListening:
       headline = "Press a button on the OEM remote";
       headline_color = white;
       break;
     case LearnState::kCapturing:
-      headline = "Capturing...";
+      if (need_more_cmd1 && need_more_cmd2) {
+        headline = "Press more buttons (power AND flame)";
+      } else if (need_more_cmd1) {
+        headline = "Press POWER / LIGHT / PILOT";
+      } else if (need_more_cmd2) {
+        headline = "Press FLAME / FAN / SEC";
+      } else {
+        headline = "Capturing...";
+      }
       headline_color = amber;
       break;
     case LearnState::kConverged:
@@ -1448,9 +1463,12 @@ void ProFlame2UI::draw_learn_(display::Display &it, int width, int height) {
     std::snprintf(line, sizeof(line), "ECC: %X %X %X %X",
                   cand.c1, cand.d1, cand.c2, cand.d2);
     it.print(8, 84, this->font_small_, white, line);
-    std::snprintf(line, sizeof(line), "valid packets: %u/%u",
-                  cand.valid_packet_count,
-                  ProFlame2Component::kLearnMinPackets);
+    std::snprintf(line, sizeof(line),
+                  "packets %u  cmd1 %u/%u  cmd2 %u/%u",
+                  cand.valid_packet_count, cand.cmd1.distinct,
+                  ProFlame2Component::kLearnMinDistinctCmds,
+                  cand.cmd2.distinct,
+                  ProFlame2Component::kLearnMinDistinctCmds);
     it.print(8, 104, this->font_small_, white, line);
   }
 

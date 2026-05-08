@@ -93,6 +93,18 @@ bool ProFlame2Component::learn_confirm() {
   return true;
 }
 
+namespace {
+void seed_candidate_(ProFlame2Component::LearnCandidate &c,
+                     const DecodedPacket &p) {
+  c = ProFlame2Component::LearnCandidate{};
+  c.serial = p.serial;
+  c.c1 = p.c1; c.d1 = p.d1; c.c2 = p.c2; c.d2 = p.d2;
+  c.cmd1.seed(p.cmd1);
+  c.cmd2.seed(p.cmd2);
+  c.valid_packet_count = 1;
+}
+}  // namespace
+
 void ProFlame2Component::on_packet_decoded_(const DecodedPacket &p) {
   // Only progress when we're actively learning. Stale packets that arrive
   // after a cancel get dropped.
@@ -101,53 +113,81 @@ void ProFlame2Component::on_packet_decoded_(const DecodedPacket &p) {
     return;
   }
 
-  if (this->learn_candidate_.valid_packet_count == 0) {
-    this->learn_candidate_.serial = p.serial;
-    this->learn_candidate_.c1 = p.c1;
-    this->learn_candidate_.d1 = p.d1;
-    this->learn_candidate_.c2 = p.c2;
-    this->learn_candidate_.d2 = p.d2;
-    this->learn_candidate_.valid_packet_count = 1;
+  auto &c = this->learn_candidate_;
+
+  if (c.valid_packet_count == 0) {
+    seed_candidate_(c, p);
     this->learn_state_ = LearnState::kCapturing;
     ESP_LOGI(TAG_LEARN,
-             "First valid packet: serial=0x%06X c1=0x%X d1=0x%X c2=0x%X "
-             "d2=0x%X",
-             p.serial, p.c1, p.d1, p.c2, p.d2);
+             "First valid packet: serial=0x%06X cmd1=0x%02X cmd2=0x%02X "
+             "→ c1=0x%X d1=0x%X c2=0x%X d2=0x%X "
+             "(press a different button to validate ECC)",
+             p.serial, p.cmd1, p.cmd2, p.c1, p.d1, p.c2, p.d2);
     return;
   }
 
-  // Subsequent packets must agree exactly. Mismatch → discard everything and
-  // restart the capture from this packet (treat the new one as authoritative
-  // for the next attempt). Safer than averaging or majority-vote: gas
-  // appliance, we want every accepted packet to corroborate.
-  const auto &c = this->learn_candidate_;
-  const bool agrees = (p.serial == c.serial) && (p.c1 == c.c1) &&
-                      (p.d1 == c.d1) && (p.c2 == c.c2) && (p.d2 == c.d2);
-  if (!agrees) {
+  if (p.serial != c.serial) {
+    // Different remote (or framing artifact picking up a different burst).
+    // Reseed from the new packet — same authoritative-restart behavior we've
+    // always had. Doesn't indicate a formula problem, just that a second
+    // remote is in range or a stray decode landed.
     ESP_LOGW(TAG_LEARN,
-             "Packet mismatch — restarting capture (was serial=0x%06X "
-             "got 0x%06X)",
+             "Serial mismatch — restarting capture (was 0x%06X got 0x%06X)",
              c.serial, p.serial);
-    this->learn_candidate_ = LearnCandidate{};
-    this->learn_candidate_.serial = p.serial;
-    this->learn_candidate_.c1 = p.c1;
-    this->learn_candidate_.d1 = p.d1;
-    this->learn_candidate_.c2 = p.c2;
-    this->learn_candidate_.d2 = p.d2;
-    this->learn_candidate_.valid_packet_count = 1;
+    seed_candidate_(c, p);
     return;
   }
 
-  this->learn_candidate_.valid_packet_count++;
-  ESP_LOGI(TAG_LEARN, "%u/%u valid packets agree",
-           this->learn_candidate_.valid_packet_count, kLearnMinPackets);
+  const bool ecc_agrees = (p.c1 == c.c1) && (p.d1 == c.d1) &&
+                          (p.c2 == c.c2) && (p.d2 == c.d2);
+  if (!ecc_agrees) {
+    if (c.cmd1.contains(p.cmd1) && c.cmd2.contains(p.cmd2)) {
+      // (cmd1, cmd2) we've already inverted, but a different (c, d) came
+      // out — algebraically impossible from the formula, so this packet is
+      // a corrupted decode (parity-passed bit shift, etc.). Drop without
+      // disturbing the candidate or the diversity counts.
+      ESP_LOGW(TAG_LEARN,
+               "ECC drift on known cmd_bytes (cmd1=0x%02X cmd2=0x%02X) — "
+               "treating as decoder noise, ignoring this packet",
+               p.cmd1, p.cmd2);
+      return;
+    }
+    // Different cmd_byte that inverts to a different (c, d) is the smoking
+    // gun: the inversion formula does not fit this remote (likely a
+    // ProFlame variant with different word order or XOR pattern). Bail to
+    // kFailed with a diagnostic instead of pseudo-converging on garbage.
+    ESP_LOGE(TAG_LEARN,
+             "ECC formula mismatch across distinct cmd_bytes — your remote "
+             "may use a non-standard ProFlame variant. "
+             "Press 1: cmd1=0x%02X cmd2=0x%02X → c1=0x%X d1=0x%X c2=0x%X d2=0x%X. "
+             "Press 2: cmd1=0x%02X cmd2=0x%02X → c1=0x%X d1=0x%X c2=0x%X d2=0x%X. "
+             "See docs/troubleshooting.md.",
+             c.cmd1.seen[0], c.cmd2.seen[0], c.c1, c.d1, c.c2, c.d2,
+             p.cmd1, p.cmd2, p.c1, p.d1, p.c2, p.d2);
+    this->stop_rx_capture();
+    this->learn_state_ = LearnState::kFailed;
+    return;
+  }
 
-  if (this->learn_candidate_.valid_packet_count >= kLearnMinPackets) {
+  c.cmd1.record(p.cmd1);
+  c.cmd2.record(p.cmd2);
+  c.valid_packet_count++;
+
+  ESP_LOGI(TAG_LEARN,
+           "%u packets agree (distinct cmd1=%u/%u, cmd2=%u/%u)",
+           c.valid_packet_count, c.cmd1.distinct, kLearnMinDistinctCmds,
+           c.cmd2.distinct, kLearnMinDistinctCmds);
+
+  if (c.valid_packet_count >= kLearnMinPackets &&
+      c.cmd1.distinct >= kLearnMinDistinctCmds &&
+      c.cmd2.distinct >= kLearnMinDistinctCmds) {
     this->learn_state_ = LearnState::kConverged;
     ESP_LOGI(TAG_LEARN,
              "CONVERGED — awaiting user confirm: serial=0x%06X c1=0x%X "
-             "d1=0x%X c2=0x%X d2=0x%X",
-             c.serial, c.c1, c.d1, c.c2, c.d2);
+             "d1=0x%X c2=0x%X d2=0x%X (validated across %u distinct cmd1, "
+             "%u distinct cmd2)",
+             c.serial, c.c1, c.d1, c.c2, c.d2, c.cmd1.distinct,
+             c.cmd2.distinct);
   }
 }
 
@@ -162,9 +202,12 @@ void ProFlame2Component::service_learn_() {
       this->learn_state_ == LearnState::kCapturing) {
     if (now - this->learn_started_ms_ > kLearnTimeoutMs) {
       ESP_LOGW(TAG_LEARN,
-               "Timed out after %u ms with %u valid packets",
+               "Timed out after %u ms with %u valid packets "
+               "(distinct cmd1=%u, cmd2=%u — need ≥%u of each)",
                static_cast<unsigned>(kLearnTimeoutMs),
-               this->learn_candidate_.valid_packet_count);
+               this->learn_candidate_.valid_packet_count,
+               this->learn_candidate_.cmd1.distinct,
+               this->learn_candidate_.cmd2.distinct, kLearnMinDistinctCmds);
       this->stop_rx_capture();
       this->learn_state_ = LearnState::kFailed;
     }
