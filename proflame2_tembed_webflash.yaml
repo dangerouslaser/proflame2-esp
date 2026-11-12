@@ -32,6 +32,20 @@ packages:
 esphome:
   name: proflame2-tembed
   friendly_name: ProFlame2 T-Embed Remote
+  # The LCD shares the SPI bus with the CC1101, and the radio initialises
+  # (setup priority HARDWARE) long before the display component (PROCESSOR)
+  # drives the LCD's chip-select. Until then GPIO41 floats. After a cold
+  # power-up it can sit low on some boards, which selects the LCD as well and
+  # corrupts the radio's register writes: the CC1101 is left on its
+  # reset-default table and every transmit times out until a soft restart.
+  # Park the LCD chip-select high before anything talks on the bus.
+  on_boot:
+    - priority: 900
+      then:
+        - lambda: |-
+            gpio_reset_pin(GPIO_NUM_41);
+            gpio_set_direction(GPIO_NUM_41, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_41, 1);
 
 esp32:
   board: esp32-s3-devkitc-1
