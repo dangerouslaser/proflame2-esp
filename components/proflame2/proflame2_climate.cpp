@@ -55,9 +55,7 @@ void ProFlame2Climate::setup() {
 
 climate::ClimateTraits ProFlame2Climate::traits() {
   auto t = climate::ClimateTraits();
-  t.set_supports_current_temperature(true);
-  t.set_supports_action(true);
-  t.set_supports_two_point_target_temperature(false);
+  t.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE | climate::CLIMATE_SUPPORTS_ACTION);
   t.add_supported_mode(climate::CLIMATE_MODE_OFF);
   t.add_supported_mode(climate::CLIMATE_MODE_HEAT);
   // Built-in fan modes only — required for HA HomeKit's RotationSpeed slider
